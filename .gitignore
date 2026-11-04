@@ -1,0 +1,37 @@
+.DS_Store
+tmp/
+
+# Local environments
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# KITTI and other large assets
+data/raw/
+data/processed/
+data/external/
+data/cache/
+data/kitti_data/
+datasets/
+kitti_data/
+weights/
+checkpoints/
+pretrained/
+logs/
+outputs/
+*.pth
+*.pt
+*.ckpt
+*.npz
+*.npy
+research/papers/
+
+# Experiment tracking
+wandb/
+runs/
+tensorboard/
+
+# Local machine paths and secrets
+.env
+configs/paths.env
