@@ -14,7 +14,7 @@
 | baseline | Lite-Mono, CVPR 2023, 기본 약 3.1M depth network |
 | benchmark | KITTI raw 기반 학습, 원문의 Eigen 평가 |
 | 입력 | 추론 RGB 한 장, 640×192. 학습은 인접 프레임과 PoseNet 포함 |
-| 자원 | 단일 NVIDIA CUDA GPU, VRAM 상한 12GB를 계획 기준으로 사용 |
+| 자원 | Colab Pro (2026-11-08 결정). GPU는 세션마다 T4/L4/A100 중 배정되며 run마다 기록. 논문의 batch 12는 12GB TITAN Xp에서 돌았으므로 모든 배정 GPU에 들어갈 것으로 예상(실측 필요). 세션은 보통 최대 12시간이라 epoch 단위 이어서 학습 사용 |
 | 주 지표 | 전체 평가 이미지의 AbsRel ↓ |
 | 함께 보고할 지표 | SqRel, RMSE, RMSE log, δ₁/δ₂/δ₃, 파라미터, batch 1 지연시간, peak memory |
 | 우선 연구 방향 | 실제 실패를 확인한 뒤, decoder 특징 결합 한 부분을 바꿔 경계 주변 깊이 번짐을 줄이는 가설 검증 |
@@ -236,9 +236,11 @@ HW2/
 
 - [x] Lite-Mono 주제 확정과 12GB 기준 범위 정의.
 - [x] 과제 마감·요구사항을 단계에 연결.
-- [ ] Lite-Mono 공식 코드 확보, commit·라이선스 기록.
-- [ ] 실제 CUDA GPU·환경 확인, 호환 환경 고정.
-- [ ] ImageNet 초기화와 KITTI checkpoint 다운로드·checksum 확인.
+- [x] Lite-Mono 공식 코드 확보, commit·라이선스 기록. (2026-11-08, [vendor/README.md](vendor/README.md))
+- [x] 호환 수정·Colab 이어서 학습·seed·이미지별 평가·KITTI 준비 스크립트·노트북 작성. (2026-11-08, Colab 실행 전)
+- [ ] Colab에서 smoke test, 실제 GPU·버전 기록.
+- [ ] checkpoint 선택 규칙을 결과 보기 전에 고정 (예: 30 epoch 중 val AbsRel 최저, 또는 마지막 epoch).
+- [x] ImageNet 초기화와 KITTI checkpoint 다운로드·checksum 확인. (2026-11-08, 로드 검증은 미실시)
 - [ ] 데이터 manifest 확보·실제 파일 준비, 전체 평가·profile.
 
 ## 근거

@@ -1,0 +1,180 @@
+# Lite-Mono upstream 4874b35 -> this project. export_gt_depth.py is compared with Monodepth2 19e16e1 (it is not in Lite-Mono).
+# Not shown: added splits/eigen_zhou/*.txt and LICENSE_monodepth2 (unmodified copies from Monodepth2).
+diff -ruN a/Lite-Mono/datasets/mono_dataset.py b/Lite-Mono/datasets/mono_dataset.py
+--- a/Lite-Mono/datasets/mono_dataset.py	2026-11-08 16:18:01.523192771 +0900
++++ b/Lite-Mono/datasets/mono_dataset.py	2026-11-08 16:32:09.073295691 +0900
+@@ -46,7 +46,7 @@
+         self.height = height
+         self.width = width
+         self.num_scales = num_scales
+-        self.interp = Image.ANTIALIAS
++        self.interp = Image.LANCZOS  # compat: ANTIALIAS was an alias of LANCZOS, removed in Pillow 10
+ 
+         self.frame_idxs = frame_idxs
+ 
+diff -ruN a/Lite-Mono/export_gt_depth.py b/Lite-Mono/export_gt_depth.py
+--- a/Lite-Mono/export_gt_depth.py	2026-11-08 16:35:23.382927593 +0900
++++ b/Lite-Mono/export_gt_depth.py	2026-11-08 16:32:11.413291478 +0900
+@@ -58,7 +58,11 @@
+ 
+     print("Saving to {}".format(opt.split))
+ 
+-    np.savez_compressed(output_path, data=np.array(gt_depths))
++    # compat: maps differ in size per date; NumPy >= 1.24 no longer builds this ragged object array implicitly
++    data = np.empty(len(gt_depths), dtype=object)
++    for i, gt_depth in enumerate(gt_depths):
++        data[i] = gt_depth
++    np.savez_compressed(output_path, data=data)
+ 
+ 
+ if __name__ == "__main__":
+diff -ruN a/Lite-Mono/kitti_utils.py b/Lite-Mono/kitti_utils.py
+--- a/Lite-Mono/kitti_utils.py	2026-11-08 16:18:01.573192638 +0900
++++ b/Lite-Mono/kitti_utils.py	2026-11-08 16:32:09.839294312 +0900
+@@ -82,7 +82,7 @@
+ 
+     # project to image
+     depth = np.zeros((im_shape[:2]))
+-    depth[velo_pts_im[:, 1].astype(np.int), velo_pts_im[:, 0].astype(np.int)] = velo_pts_im[:, 2]
++    depth[velo_pts_im[:, 1].astype(int), velo_pts_im[:, 0].astype(int)] = velo_pts_im[:, 2]  # compat: np.int (=int) removed in NumPy 1.24
+ 
+     # find the duplicate points and choose the closest depth
+     inds = sub2ind(depth.shape, velo_pts_im[:, 1], velo_pts_im[:, 0])
+diff -ruN a/Lite-Mono/networks/resnet_encoder.py b/Lite-Mono/networks/resnet_encoder.py
+--- a/Lite-Mono/networks/resnet_encoder.py	2026-11-08 16:18:01.574192635 +0900
++++ b/Lite-Mono/networks/resnet_encoder.py	2026-11-08 16:32:10.640292870 +0900
+@@ -45,7 +45,8 @@
+     model = ResNetMultiImageInput(block_type, blocks, num_input_images=num_input_images)
+ 
+     if pretrained:
+-        loaded = model_zoo.load_url(models.resnet.model_urls['resnet{}'.format(num_layers)])
++        # compat: model_urls was removed from torchvision; IMAGENET1K_V1 is the same file (resnet18-f37072fd.pth)
++        loaded = model_zoo.load_url(models.get_model_weights('resnet{}'.format(num_layers)).IMAGENET1K_V1.url)
+         loaded['conv1.weight'] = torch.cat(
+             [loaded['conv1.weight']] * num_input_images, 1) / num_input_images
+         model.load_state_dict(loaded)
+diff -ruN a/Lite-Mono/options.py b/Lite-Mono/options.py
+--- a/Lite-Mono/options.py	2026-11-08 16:18:01.574192635 +0900
++++ b/Lite-Mono/options.py	2026-11-08 16:32:12.209290044 +0900
+@@ -160,6 +160,11 @@
+                                  type=int,
+                                  help="number of dataloader workers",
+                                  default=12)
++        # added: fixed seed so baseline and variants see the same init, data order and augmentation
++        self.parser.add_argument("--seed",
++                                 type=int,
++                                 help="random seed; unset keeps the original unseeded behaviour",
++                                 default=None)
+ 
+         # LOADING options
+         self.parser.add_argument("--load_weights_folder",
+diff -ruN a/Lite-Mono/trainer.py b/Lite-Mono/trainer.py
+--- a/Lite-Mono/trainer.py	2026-11-08 16:18:01.574192635 +0900
++++ b/Lite-Mono/trainer.py	2026-11-08 16:32:55.078211798 +0900
+@@ -2,6 +2,7 @@
+ 
+ 
+ import time
++import random
+ import torch.optim as optim
+ from torch.utils.data import DataLoader
+ from tensorboardX import SummaryWriter
+@@ -32,6 +33,14 @@
+         self.opt = options
+         self.log_path = os.path.join(self.opt.log_dir, self.opt.model_name)
+ 
++        if self.opt.seed is not None:  # added: see --seed
++            random.seed(self.opt.seed)
++            np.random.seed(self.opt.seed)
++            torch.manual_seed(self.opt.seed)
++        self.start_epoch = 0  # added: set by load_model() when resuming
++        self.step = 0
++        self.prev_elapsed = 0.0  # added: training seconds from earlier sessions
++
+         # checking height and width are multiples of 32
+         assert self.opt.height % 32 == 0, "'height' must be a multiple of 32"
+         assert self.opt.width % 32 == 0, "'width' must be a multiple of 32"
+@@ -133,7 +142,7 @@
+         if self.opt.load_weights_folder is not None:
+             self.load_model()
+ 
+-        if self.opt.mypretrain is not None:
++        if self.opt.mypretrain is not None and self.start_epoch == 0:  # added: never overwrite resumed weights
+             self.load_pretrain()
+ 
+         print("Training model named:\n  ", self.opt.model_name)
+@@ -213,9 +222,15 @@
+         """Run the entire training pipeline
+         """
+         self.epoch = 0
+-        self.step = 0
+         self.start_time = time.time()
+-        for self.epoch in range(self.opt.num_epochs):
++        # added (resume): the schedulers only count per-epoch step() calls, so replaying them restores the exact LR
++        for _ in range(self.start_epoch):
++            self.model_lr_scheduler.step()
++            self.model_pose_lr_scheduler.step()
++        if self.start_epoch and self.opt.seed is not None:
++            # shortcut: a resumed run is reproducible but not bit-identical to an uninterrupted one
++            torch.manual_seed(self.opt.seed + self.start_epoch)
++        for self.epoch in range(self.start_epoch, self.opt.num_epochs):
+             self.run_epoch()
+             if (self.epoch + 1) % self.opt.save_frequency == 0:
+                 self.save_model()
+@@ -361,10 +376,10 @@
+         """
+         self.set_eval()
+         try:
+-            inputs = self.val_iter.next()
++            inputs = next(self.val_iter)  # compat: DataLoader iterators no longer have .next()
+         except StopIteration:
+             self.val_iter = iter(self.val_loader)
+-            inputs = self.val_iter.next()
++            inputs = next(self.val_iter)
+ 
+         with torch.no_grad():
+             outputs, losses = self.process_batch(inputs)
+@@ -653,11 +668,29 @@
+         if self.use_pose_net:
+             torch.save(self.model_pose_optimizer.state_dict(), save_path)
+ 
++        # added (resume): written last, so a folder holding it is a complete checkpoint
++        # elapsed_sec sums sessions up to this save; work lost after the last save of a session is not counted
++        state = {"epoch": self.epoch, "step": self.step,
++                 "elapsed_sec": self.prev_elapsed + time.time() - self.start_time}
++        if torch.cuda.is_available():
++            state["max_memory_allocated"] = torch.cuda.max_memory_allocated()
++            state["max_memory_reserved"] = torch.cuda.max_memory_reserved()
++        with open(os.path.join(save_folder, "train_state.json"), "w") as f:
++            json.dump(state, f, indent=2)
++        # added: keep encoder/depth of every epoch for checkpoint selection, but the resume-only files
++        # (pose nets, optimizers, ~175MB) of the latest epoch only, to fit 30 epochs on Google Drive
++        prev_folder = os.path.join(self.log_path, "models", "weights_{}".format(self.epoch - 1))
++        for name in ["pose_encoder.pth", "pose.pth", "adam.pth", "adam_pose.pth", "train_state.json"]:
++            if os.path.isfile(os.path.join(prev_folder, name)):
++                os.remove(os.path.join(prev_folder, name))
++
+     def load_pretrain(self):
+         self.opt.mypretrain = os.path.expanduser(self.opt.mypretrain)
+         path = self.opt.mypretrain
+         model_dict = self.models["encoder"].state_dict()
+-        pretrained_dict = torch.load(path)['model']
++        # compat: the official file also pickles argparse.Namespace; torch>=2.6 defaults to weights_only=True.
++        # Only load the checksummed official file here (sha256 in vendor/README.md).
++        pretrained_dict = torch.load(path, weights_only=False)['model']
+         pretrained_dict = {k: v for k, v in pretrained_dict.items() if (k in model_dict and not k.startswith('norm'))}
+         model_dict.update(pretrained_dict)
+         self.models["encoder"].load_state_dict(model_dict)
+@@ -702,3 +735,12 @@
+         else:
+             print("Cannot find Adam weights so Adam is randomly initialized")
+ 
++        # added (resume): continue after the saved epoch instead of restarting the schedule
++        state_path = os.path.join(self.opt.load_weights_folder, "train_state.json")
++        if os.path.isfile(state_path):
++            with open(state_path) as f:
++                state = json.load(f)
++            self.start_epoch, self.step = state["epoch"] + 1, state["step"]
++            self.prev_elapsed = state["elapsed_sec"]
++            print("Resuming at epoch {} (step {})".format(self.start_epoch, self.step))
++

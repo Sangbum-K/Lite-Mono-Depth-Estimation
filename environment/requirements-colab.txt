@@ -1,0 +1,11 @@
+# Installed on top of Colab's preinstalled torch/torchvision (not pinned here: the GPU runtime decides them).
+# The versions actually used are written to environment/ per session by the notebook (pip freeze).
+tensorboardX
+thop
+six
+timm
+scikit-image
+opencv-python
+matplotlib
+# LR scheduler used by trainer.py, pinned to the commit reviewed on 2026-11-08
+git+https://github.com/saadnaeem-dev/pytorch-linear-warmup-cosine-annealing-warm-restarts-weight-decay@73bf9581977a7bef199aaf73618b37c7366debbe
