@@ -1,6 +1,6 @@
 # Environment
 
-학습 환경은 Colab Pro다. GPU는 T4(고용량 RAM)로 통일한다(2026-11-09 결정). 실제 배정된 GPU는 run마다 기록한다.
+학습 환경은 Colab Pro다. GPU는 L4로 통일한다(2026-11-09 결정). 실제 배정된 GPU는 run마다 기록한다.
 
 - `requirements-colab.txt`: Colab 기본 설치(torch, torchvision) 위에 추가하는 패키지. scheduler 패키지는 commit을 고정했다.
 - 실제 버전 기록: 노트북 1단계가 세션마다 `nvidia-smi`, CPU 수, 디스크, `pip freeze`를 Drive의 `lite_mono/env/session_*.txt`에 저장한다. 보고서에 쓸 세션 기록은 이 폴더로 복사한다.

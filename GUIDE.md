@@ -70,7 +70,7 @@
 |---|---|
 | 하는 일 | ① Drive 연결 ② 경로와 학습 이름(`RUN_ID`) 설정 ③ Drive에 데이터 4개가 있는지 확인 ④ GitHub에서 코드 받기(있으면 최신으로 업데이트) ⑤ 추가 패키지 설치 ⑥ GPU·패키지 버전을 Drive `env/`에 기록 |
 | 쓰는 파일 | `environment/requirements-colab.txt` |
-| 정상 출력 | `코드 버전: <커밋 번호> <커밋 메시지>`, GPU 이름(예: `Tesla T4`), `준비 완료. 학습 이름: ...` |
+| 정상 출력 | `코드 버전: <커밋 번호> <커밋 메시지>`, GPU 이름(예: `NVIDIA L4`), `준비 완료. 학습 이름: ...` |
 | 주의 | 로그인 팝업에서 **Drive와 같은 계정**, **권한 체크박스 전부 선택**. `RUN_ID`는 한 학습이 끝날 때까지 바꾸지 않는다 |
 
 설정값:
@@ -434,7 +434,7 @@ lite_mono/
 | `cd: /content/Lite-Mono-Depth-Estimation: No such file or directory` | 1단계를 실행하지 않았거나 런타임이 초기화됨. 1단계부터 다시 |
 | `module 'datasets' has no attribute 'KITTIRAWDataset'` | 코드 폴더 `vendor/Lite-Mono/datasets/`가 없음(2026-11-09 수정됨). 1단계를 다시 실행하면 최신 코드로 업데이트된다 |
 | `NameError: name 'RUN_ID' is not defined` 등 | 런타임이 초기화되어 변수가 사라짐. 1단계부터 다시 |
-| `CUDA out of memory` | 논문의 batch 12는 12GB GPU에서 돌았으므로 T4(16GB)에는 들어가야 함. 런타임을 다시 시작한 뒤 1 → 2 → 4 → 6. batch를 줄이면 논문 조건과 달라지므로 마지막 수단 |
+| `CUDA out of memory` | 논문의 batch 12는 12GB GPU에서 돌았으므로 L4(24GB)에는 들어가야 함. 런타임을 다시 시작한 뒤 1 → 2 → 4 → 6. batch를 줄이면 논문 조건과 달라지므로 마지막 수단 |
 | 학습 중 세션 끊김 | 정상적인 상황. 1 → 2 → 4 → 6을 다시 실행하면 이어서 한다 |
 | 5단계 점수가 0.107과 다름 | 학습하지 말 것. 4단계 점검 출력, `eigen_gt_depths.npz` 복사 여부를 확인하고 출력 전체를 공유 |
 

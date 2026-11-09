@@ -14,7 +14,7 @@
 | baseline | Lite-Mono, CVPR 2023, 기본 약 3.1M depth network |
 | benchmark | KITTI raw 기반 학습, 원문의 Eigen 평가 |
 | 입력 | 추론 RGB 한 장, 640×192. 학습은 인접 프레임과 PoseNet 포함 |
-| 자원 | Colab Pro (2026-11-08 결정). GPU는 세션마다 T4/L4/A100 중 배정되며 run마다 기록. 논문의 batch 12는 12GB TITAN Xp에서 돌았으므로 모든 배정 GPU에 들어갈 것으로 예상(실측 필요). 세션은 보통 최대 12시간이라 epoch 단위 이어서 학습 사용. **2026-11-09: 모든 학습을 T4(고용량 RAM)로 통일하기로 결정** |
+| 자원 | Colab Pro (2026-11-08 결정). GPU는 세션마다 T4/L4/A100 중 배정되며 run마다 기록. 논문의 batch 12는 12GB TITAN Xp에서 돌았으므로 모든 배정 GPU에 들어갈 것으로 예상(실측 필요). 세션은 보통 최대 12시간이라 epoch 단위 이어서 학습 사용. **2026-11-09: 모든 학습을 L4로 통일하기로 결정** (T4로 시작했으나 30 epoch 예상 22시간이라 변경) |
 | 주 지표 | 전체 평가 이미지의 AbsRel ↓ |
 | 함께 보고할 지표 | SqRel, RMSE, RMSE log, δ₁/δ₂/δ₃, 파라미터, batch 1 지연시간, peak memory |
 | 우선 연구 방향 | 실제 실패를 확인한 뒤, decoder 특징 결합 한 부분을 바꿔 경계 주변 깊이 번짐을 줄이는 가설 검증 |
