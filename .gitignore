@@ -13,7 +13,7 @@ data/processed/
 data/external/
 data/cache/
 data/kitti_data/
-datasets/
+/datasets/
 kitti_data/
 weights/
 checkpoints/
