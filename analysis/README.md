@@ -7,7 +7,7 @@
 | `eval_per_image.py` | 공식 `evaluate_depth.py`와 같은 계산(Eigen crop, 1e-3–80m, 이미지별 median scaling, 7개 지표)을 이미지별로 수행. 여러 checkpoint를 이미지 한 번 읽어 동시에 평가하고, 각 weights 폴더에 `per_image_<split>.csv`를 저장. 정답 깊이는 sparse로 저장해 val 4,424장도 메모리 부담 없이 평가 |
 | `test_eval_per_image.py` | 위 스크립트의 sparse 저장·복원과 mask·crop·scaling 계산을 numpy로 점검. 로컬에서 통과 |
 
-검증 기준: 공개 checkpoint의 test 평균이 공식 `evaluate_depth.py` 출력과 같아야 한다(노트북 F 셀). 같지 않으면 이 스크립트로 얻은 숫자를 쓰지 않는다.
+검증 기준: 공개 checkpoint의 test 평균이 공식 `evaluate_depth.py` 출력과 같아야 한다(노트북 5단계). 같지 않으면 이 스크립트로 얻은 숫자를 쓰지 않는다.
 
 val의 오른쪽 카메라 행은 카메라 3 기준 정답 깊이로 평가한다. 공식 test는 모두 왼쪽 카메라(카메라 2)다.
 

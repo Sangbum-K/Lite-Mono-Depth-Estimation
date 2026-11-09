@@ -20,10 +20,9 @@ Phase 2에서 다음을 기록한다.
 | 경로 | 내용 | 수명 |
 |---|---|---|
 | `/content/kitti_data` | 학습·평가 RGB jpg (45,259장) + calib. 학습의 `--data_path` | 세션마다 Drive tar에서 복원 |
-| `/content/kitti_velo` | val/test 프레임의 LiDAR 4,884개 + calib. 평가용 정답 깊이 생성에만 사용 | 준비 세션에서만. 정답 깊이를 만든 뒤 버림 |
 | Drive `lite_mono/data/` | `kitti_jpg.tar`, `eigen_gt_depths.npz`(공식 test GT), `test_gt.npz`, `val_gt.npz`(이미지별 평가용) | 영구 |
 
-### PC에서 준비하고 Drive에 올리는 경우 (노트북 D 셀 대신)
+### PC에서 준비하고 Drive에 올리기 (2026-11-09 완료)
 
 ```bash
 bash scripts/download_kitti_pc.sh

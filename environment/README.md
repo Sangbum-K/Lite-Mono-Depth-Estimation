@@ -3,7 +3,7 @@
 학습 환경은 Colab Pro다. GPU 종류(T4/L4/A100)는 세션마다 배정되므로 run마다 기록한다.
 
 - `requirements-colab.txt`: Colab 기본 설치(torch, torchvision) 위에 추가하는 패키지. scheduler 패키지는 commit을 고정했다.
-- 실제 버전 기록: 노트북 A 셀이 세션마다 `nvidia-smi`, CPU 수, 디스크, `pip freeze`를 Drive의 `lite_mono/env/session_*.txt`에 저장한다. 보고서에 쓸 세션 기록은 이 폴더로 복사한다.
+- 실제 버전 기록: 노트북 1단계가 세션마다 `nvidia-smi`, CPU 수, 디스크, `pip freeze`를 Drive의 `lite_mono/env/session_*.txt`에 저장한다. 보고서에 쓸 세션 기록은 이 폴더로 복사한다.
 - 공식 코드의 호환 수정은 [vendor/README.md](../vendor/README.md)에 있다.
 
 Colab 제약 (2026-11-08 공식 FAQ 기준, 변할 수 있음):

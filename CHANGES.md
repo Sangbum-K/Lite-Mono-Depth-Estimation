@@ -47,7 +47,8 @@ Colab Pro 세션은 보통 12시간 안에 끊기고, Drive 용량도 한정되�
 | `analysis/eval_per_image.py` | 공식 평가와 같은 계산을 이미지별로 해서 CSV로 저장. val 4,424장도 메모리 부담 없이 평가하고 여러 checkpoint를 한 번에 평가 |
 | `analysis/test_eval_per_image.py` | 위 평가 코드의 계산 점검 |
 | `scripts/smoke_test.py` | 데이터 없이 Colab GPU에서 코드·가중치 일치, 파라미터 3.1M, 수정한 부분 동작 확인 |
-| `scripts/colab_lite_mono.ipynb` | Colab 전체 순서: 설정 → 가중치 → 점검 → 데이터 복원 → 공개 checkpoint 평가(0.107 확인) → 학습 → checkpoint 선택 |
+| `scripts/colab_lite_mono.ipynb` | Colab 전체 순서 1~7단계: 준비 → 가중치 → 점검 → 데이터 풀기 → 공개 checkpoint 평가(0.107 확인) → 학습 → checkpoint 선택 |
+| `GUIDE.md` | 전체 안내서: 파일별 역할, 노트북 단계별 설명, 학습 원리 |
 | `environment/requirements-colab.txt` | Colab에 추가로 설치할 패키지 |
 
 ## 5. 알아낸 사실 (보고서에 쓸 만한 것)
@@ -59,5 +60,5 @@ Colab Pro 세션은 보통 12시간 안에 끊기고, Drive 용량도 한정되�
 
 ## 6. 아직 확인 못 한 것
 
-- 수정한 공식 코드를 실제로 실행해 보지 않았다. Colab C 셀(smoke test)과 F 셀(공개 checkpoint 0.107 재현)이 첫 검증이다.
+- smoke test(노트북 3단계)는 2026-11-09 Colab에서 통과했다(파라미터 3,074,747개). 공개 checkpoint 0.107 재현(5단계)이 남은 첫 검증이다.
 - jpg 묶음과 정답 파일의 실제 크기, 실제 학습 시간은 데이터를 받은 뒤 측정한다.
