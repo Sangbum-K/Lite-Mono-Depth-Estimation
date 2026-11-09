@@ -1,0 +1,90 @@
+diff --git a/datasets/mono_dataset.py b/datasets/mono_dataset.py
+index 7dcd36a..c5263a6 100644
+--- a/datasets/mono_dataset.py
++++ b/datasets/mono_dataset.py
+@@ -46,7 +46,7 @@ class MonoDataset(data.Dataset):
+         self.height = height
+         self.width = width
+         self.num_scales = num_scales
+-        self.interp = Image.ANTIALIAS
++        self.interp = transforms.InterpolationMode.LANCZOS  # [env-compat] Pillow>=10 removed ANTIALIAS (same filter)
+ 
+         self.frame_idxs = frame_idxs
+ 
+diff --git a/kitti_utils.py b/kitti_utils.py
+index 85c5d7e..b2cdc90 100644
+--- a/kitti_utils.py
++++ b/kitti_utils.py
+@@ -82,7 +82,7 @@ def generate_depth_map(calib_dir, velo_filename, cam=2, vel_depth=False):
+ 
+     # project to image
+     depth = np.zeros((im_shape[:2]))
+-    depth[velo_pts_im[:, 1].astype(np.int), velo_pts_im[:, 0].astype(np.int)] = velo_pts_im[:, 2]
++    depth[velo_pts_im[:, 1].astype(int), velo_pts_im[:, 0].astype(int)] = velo_pts_im[:, 2]
+ 
+     # find the duplicate points and choose the closest depth
+     inds = sub2ind(depth.shape, velo_pts_im[:, 1], velo_pts_im[:, 0])
+diff --git a/networks/resnet_encoder.py b/networks/resnet_encoder.py
+index 387efd4..3daa131 100644
+--- a/networks/resnet_encoder.py
++++ b/networks/resnet_encoder.py
+@@ -45,7 +45,9 @@ def resnet_multiimage_input(num_layers, pretrained=False, num_input_images=1):
+     model = ResNetMultiImageInput(block_type, blocks, num_input_images=num_input_images)
+ 
+     if pretrained:
+-        loaded = model_zoo.load_url(models.resnet.model_urls['resnet{}'.format(num_layers)])
++        # [env-compat] torchvision>=0.13 removed models.resnet.model_urls; same ImageNet V1 weights.
++        weights_enum = {18: models.ResNet18_Weights, 50: models.ResNet50_Weights}[num_layers]
++        loaded = model_zoo.load_url(weights_enum.IMAGENET1K_V1.url)
+         loaded['conv1.weight'] = torch.cat(
+             [loaded['conv1.weight']] * num_input_images, 1) / num_input_images
+         model.load_state_dict(loaded)
+@@ -75,7 +77,8 @@ class ResnetEncoder(nn.Module):
+         if num_input_images > 1:
+             self.encoder = resnet_multiimage_input(num_layers, pretrained, num_input_images)
+         else:
+-            self.encoder = resnets[num_layers](pretrained)
++            # [env-compat] torchvision>=0.13 takes weights= instead of a positional pretrained flag.
++            self.encoder = resnets[num_layers](weights="IMAGENET1K_V1" if pretrained else None)
+ 
+         if num_layers > 34:
+             self.num_ch_enc[1:] *= 4
+diff --git a/trainer.py b/trainer.py
+index 70eda1e..fc06737 100644
+--- a/trainer.py
++++ b/trainer.py
+@@ -361,10 +361,10 @@ class Trainer:
+         """
+         self.set_eval()
+         try:
+-            inputs = self.val_iter.next()
++            inputs = next(self.val_iter)
+         except StopIteration:
+             self.val_iter = iter(self.val_loader)
+-            inputs = self.val_iter.next()
++            inputs = next(self.val_iter)
+ 
+         with torch.no_grad():
+             outputs, losses = self.process_batch(inputs)
+@@ -657,11 +657,19 @@ class Trainer:
+         self.opt.mypretrain = os.path.expanduser(self.opt.mypretrain)
+         path = self.opt.mypretrain
+         model_dict = self.models["encoder"].state_dict()
+-        pretrained_dict = torch.load(path)['model']
++        # [env-compat] torch>=2.6 defaults to weights_only=True; allowlist only the
++        # non-tensor types stored in the official ImageNet checkpoint's metadata.
++        import argparse
++        import numpy as np
++        from numpy.core.multiarray import scalar as np_scalar
++        safe = [np_scalar, np.dtype, type(np.dtype(np.float64)), argparse.Namespace]
++        with torch.serialization.safe_globals(safe):
++            pretrained_dict = torch.load(path, map_location="cpu")['model']
+         pretrained_dict = {k: v for k, v in pretrained_dict.items() if (k in model_dict and not k.startswith('norm'))}
+         model_dict.update(pretrained_dict)
+         self.models["encoder"].load_state_dict(model_dict)
+-        print('mypretrain loaded.')
++        print('mypretrain loaded: {}/{} encoder tensors from {}'.format(
++            len(pretrained_dict), len(model_dict), path))
+ 
+     def load_model(self):
+         """Load model(s) from disk
