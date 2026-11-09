@@ -55,7 +55,7 @@ HW2/
 ## 서버로 옮긴 직후
 
 ```bash
-git clone https://github.com/Sangbum-K/Lite-Mono-Depth-Estimation.git
+git clone -b Colab https://github.com/Sangbum-K/Lite-Mono-Depth-Estimation.git
 cd Lite-Mono-Depth-Estimation
 cp configs/paths.env.example configs/paths.env
 ```

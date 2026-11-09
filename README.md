@@ -6,7 +6,7 @@
 
 현재 완료한 일은 주제 선정, 단계별 계획, 공식 코드·split·가중치 확보, 호환 수정과 Colab 실행 준비다(2026-11-08). KITTI 다운로드와 실제 GPU 실행은 아직 하지 않았다.
 
-**시작점:** Colab에서 [scripts/colab_lite_mono.ipynb](scripts/colab_lite_mono.ipynb)를 연다. 셀 순서와 각 단계는 노트북 첫 셀에 있다. 지금까지 바꾼 것의 쉬운 요약은 [CHANGES.md](CHANGES.md), 공식 코드 수정 근거는 [vendor/README.md](vendor/README.md)와 [vendor/changes_from_upstream.patch](vendor/changes_from_upstream.patch)에 있다.
+**시작점:** Colab에서 [scripts/colab_lite_mono.ipynb](scripts/colab_lite_mono.ipynb)를 연다 ([`Colab` 브랜치 노트북 바로 열기](https://colab.research.google.com/github/Sangbum-K/Lite-Mono-Depth-Estimation/blob/Colab/scripts/colab_lite_mono.ipynb)). 실행용 코드는 GitHub `Colab` 브랜치에 올린다. 셀 순서와 각 단계는 노트북 첫 셀에 있다. 지금까지 바꾼 것의 쉬운 요약은 [CHANGES.md](CHANGES.md), 공식 코드 수정 근거는 [vendor/README.md](vendor/README.md)와 [vendor/changes_from_upstream.patch](vendor/changes_from_upstream.patch)에 있다.
 
 - [전체 구현 계획과 Phase별 완료 기준](PLAN.md)
 - [폴더 구조와 서버 작업 방법](STRUCTURE.md)
@@ -19,6 +19,6 @@
 | Intermediate | 2026-11-29 23:59 |
 | Final PDF + 코드 zip | 2026-12-18 23:59 |
 
-다음 작업: 이 저장소를 GitHub에 올린 뒤 Colab 노트북의 A → B → C(smoke test) → D(KITTI 준비) → F(공개 checkpoint 0.107 확인) 순서로 실행한다. Colab 경로는 노트북 A 셀에서 정하므로 `configs/paths.env`는 쓰지 않는다.
+다음 작업: KITTI는 PC에서 준비를 마쳤다(`data/processed/` 4개 파일 → Drive `MyDrive/lite_mono/data/`). 이 저장소를 GitHub `Colab` 브랜치에 올린 뒤 Colab 노트북의 A → B → C(smoke test) → E(데이터 복원) → F(공개 checkpoint 0.107 확인) 순서로 실행한다. D는 건너뛴다. Colab 경로는 노트북 A 셀에서 정하므로 `configs/paths.env`는 쓰지 않는다.
 
 연구 메모와 구현 계획은 학습·작업 관리용이다. 제출 보고서는 과제 지침에 따라 학생이 자신의 이해와 문장으로 작성한다.
