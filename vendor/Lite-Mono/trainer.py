@@ -223,6 +223,7 @@ class Trainer:
         """
         self.epoch = 0
         self.start_time = time.time()
+        self.start_step = self.step  # added: step is cumulative after resume, speed must use this session only
         # added (resume): the schedulers only count per-epoch step() calls, so replaying them restores the exact LR
         for _ in range(self.start_epoch):
             self.model_lr_scheduler.step()
@@ -585,14 +586,16 @@ class Trainer:
         """
         samples_per_sec = self.opt.batch_size / duration
         time_sofar = time.time() - self.start_time
-        training_time_left = (
-            self.num_total_steps / self.step - 1.0) * time_sofar if self.step > 0 else 0
-        print_string = "epoch {:>3} | lr {:.6f} |lr_p {:.6f} | batch {:>6} | examples/s: {:5.1f}" + \
-            " | loss: {:.5f} | time elapsed: {} | time left: {}"
-        print(print_string.format(self.epoch, self.model_optimizer.state_dict()['param_groups'][0]['lr'],
+        # added: same estimate as upstream for a fresh run, but correct after resume
+        done = self.step - self.start_step
+        training_time_left = (self.num_total_steps - self.step) * time_sofar / done if done > 0 else 0
+        print_string = "epoch {:>3} | {:5.1f}% | lr {:.6f} |lr_p {:.6f} | batch {:>6} | examples/s: {:5.1f}" + \
+            " | loss: {:.5f} | time elapsed: {} | time left: {}"  # added: overall % done
+        print(print_string.format(self.epoch, 100.0 * self.step / self.num_total_steps,
+                                  self.model_optimizer.state_dict()['param_groups'][0]['lr'],
                                   self.model_pose_optimizer.state_dict()['param_groups'][0]['lr'],
                                   batch_idx, samples_per_sec, loss,
-                                  sec_to_hm_str(time_sofar), sec_to_hm_str(training_time_left)))
+                                  sec_to_hm_str(self.prev_elapsed + time_sofar), sec_to_hm_str(training_time_left)))
 
     def log(self, mode, inputs, outputs, losses):
         """Write an event to the tensorboard events file

@@ -69,8 +69,8 @@ diff -ruN a/Lite-Mono/options.py b/Lite-Mono/options.py
          # LOADING options
          self.parser.add_argument("--load_weights_folder",
 diff -ruN a/Lite-Mono/trainer.py b/Lite-Mono/trainer.py
---- a/Lite-Mono/trainer.py	2026-11-08 16:18:01.574192635 +0900
-+++ b/Lite-Mono/trainer.py	2026-11-08 16:32:55.078211798 +0900
+--- a/Lite-Mono/trainer.py	2026-11-09 12:46:11.071812063 +0900
++++ b/Lite-Mono/trainer.py	2026-11-09 12:46:11.075812055 +0900
 @@ -2,6 +2,7 @@
  
  
@@ -103,13 +103,14 @@ diff -ruN a/Lite-Mono/trainer.py b/Lite-Mono/trainer.py
              self.load_pretrain()
  
          print("Training model named:\n  ", self.opt.model_name)
-@@ -213,9 +222,15 @@
+@@ -213,9 +222,16 @@
          """Run the entire training pipeline
          """
          self.epoch = 0
 -        self.step = 0
          self.start_time = time.time()
 -        for self.epoch in range(self.opt.num_epochs):
++        self.start_step = self.step  # added: step is cumulative after resume, speed must use this session only
 +        # added (resume): the schedulers only count per-epoch step() calls, so replaying them restores the exact LR
 +        for _ in range(self.start_epoch):
 +            self.model_lr_scheduler.step()
@@ -121,7 +122,7 @@ diff -ruN a/Lite-Mono/trainer.py b/Lite-Mono/trainer.py
              self.run_epoch()
              if (self.epoch + 1) % self.opt.save_frequency == 0:
                  self.save_model()
-@@ -361,10 +376,10 @@
+@@ -361,10 +377,10 @@
          """
          self.set_eval()
          try:
@@ -134,7 +135,30 @@ diff -ruN a/Lite-Mono/trainer.py b/Lite-Mono/trainer.py
  
          with torch.no_grad():
              outputs, losses = self.process_batch(inputs)
-@@ -653,11 +668,29 @@
+@@ -570,14 +586,16 @@
+         """
+         samples_per_sec = self.opt.batch_size / duration
+         time_sofar = time.time() - self.start_time
+-        training_time_left = (
+-            self.num_total_steps / self.step - 1.0) * time_sofar if self.step > 0 else 0
+-        print_string = "epoch {:>3} | lr {:.6f} |lr_p {:.6f} | batch {:>6} | examples/s: {:5.1f}" + \
+-            " | loss: {:.5f} | time elapsed: {} | time left: {}"
+-        print(print_string.format(self.epoch, self.model_optimizer.state_dict()['param_groups'][0]['lr'],
++        # added: same estimate as upstream for a fresh run, but correct after resume
++        done = self.step - self.start_step
++        training_time_left = (self.num_total_steps - self.step) * time_sofar / done if done > 0 else 0
++        print_string = "epoch {:>3} | {:5.1f}% | lr {:.6f} |lr_p {:.6f} | batch {:>6} | examples/s: {:5.1f}" + \
++            " | loss: {:.5f} | time elapsed: {} | time left: {}"  # added: overall % done
++        print(print_string.format(self.epoch, 100.0 * self.step / self.num_total_steps,
++                                  self.model_optimizer.state_dict()['param_groups'][0]['lr'],
+                                   self.model_pose_optimizer.state_dict()['param_groups'][0]['lr'],
+                                   batch_idx, samples_per_sec, loss,
+-                                  sec_to_hm_str(time_sofar), sec_to_hm_str(training_time_left)))
++                                  sec_to_hm_str(self.prev_elapsed + time_sofar), sec_to_hm_str(training_time_left)))
+ 
+     def log(self, mode, inputs, outputs, losses):
+         """Write an event to the tensorboard events file
+@@ -653,11 +671,29 @@
          if self.use_pose_net:
              torch.save(self.model_pose_optimizer.state_dict(), save_path)
  
@@ -165,7 +189,7 @@ diff -ruN a/Lite-Mono/trainer.py b/Lite-Mono/trainer.py
          pretrained_dict = {k: v for k, v in pretrained_dict.items() if (k in model_dict and not k.startswith('norm'))}
          model_dict.update(pretrained_dict)
          self.models["encoder"].load_state_dict(model_dict)
-@@ -702,3 +735,12 @@
+@@ -702,3 +738,12 @@
          else:
              print("Cannot find Adam weights so Adam is randomly initialized")
  

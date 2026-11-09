@@ -25,7 +25,7 @@
 | `kitti_utils.py` | `np.int`가 NumPy 1.24에서 삭제 | `int` (원래 같은 것) |
 | `export_gt_depth.py` | 날짜마다 이미지 크기가 달라 최신 NumPy가 배열 생성을 거부 | 옛 NumPy가 자동으로 만들던 것과 같은 배열을 직접 생성 |
 
-## 3. 공식 코드 수정 — Colab 운영용 기능 3개
+## 3. 공식 코드 수정 — Colab 운영용 기능 4개
 
 Colab Pro 세션은 보통 12시간 안에 끊기고, Drive 용량도 한정되어 있어서 추가했다. 계산식은 그대로다. 코드에는 `# added:` 주석.
 
@@ -34,8 +34,9 @@ Colab Pro 세션은 보통 12시간 안에 끊기고, Drive 용량도 한정되�
 | 이어서 학습 | 매 epoch 끝에 진행 상태(`train_state.json`)를 저장. 다시 실행하면 다음 epoch부터 같은 learning rate로 재개 | 계산은 같다. 다만 이어서 한 run은 데이터 순서가 끊김 없는 run과 달라서 완전히 똑같지는 않다 |
 | `--seed` | B/I/C가 같은 초기값·데이터 순서·증강을 보게 함. 안 쓰면 원본처럼 seed 없음 | 공정한 비교용 |
 | checkpoint 정리 | 매 epoch의 depth 모델은 모두 남기고, 재개에만 쓰는 큰 파일(약 175MB)은 최신 것만 남김. 메모리·누적 학습시간도 기록 | 없음 (저장 공간만 절약) |
+| 진행률 표시 | 학습 로그 줄에 전체 진행률(%)을 넣고, 이어서 학습할 때 틀리던 남은 시간을 바로잡음. `time elapsed`는 세션을 합친 누적 시간 | 없음 (화면 출력만) |
 
-전체 diff: `vendor/changes_from_upstream.patch` (6개 파일, +59/−10줄). 자세한 근거: `vendor/README.md`.
+전체 diff: `vendor/changes_from_upstream.patch` (6개 파일, +68/−16줄). 자세한 근거: `vendor/README.md`.
 
 ## 4. 새로 만든 파일 (공식 코드 밖)
 

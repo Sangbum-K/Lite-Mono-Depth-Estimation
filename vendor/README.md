@@ -37,7 +37,7 @@ Lite-Mono 코드가 읽지만 저장소에 포함되지 않은 파일이다. 모
 
 ## 수정 기록
 
-모든 코드 변경은 [changes_from_upstream.patch](changes_from_upstream.patch)에 있다 (6개 파일, +59/−10줄). 코드 안에서는 `# compat:`(환경 호환)과 `# added:`(Colab 운영) 주석으로 표시했다. **모델 구조·손실·데이터·하이퍼파라미터·평가 방식은 바꾸지 않았다.** 연구 아이디어 변경은 아직 없으며, 생기면 별도 표로 추가한다.
+모든 코드 변경은 [changes_from_upstream.patch](changes_from_upstream.patch)에 있다 (6개 파일, +68/−16줄). 코드 안에서는 `# compat:`(환경 호환)과 `# added:`(Colab 운영) 주석으로 표시했다. **모델 구조·손실·데이터·하이퍼파라미터·평가 방식은 바꾸지 않았다.** 연구 아이디어 변경은 아직 없으며, 생기면 별도 표로 추가한다.
 
 ### 환경 호환 수정 (2026-11-08)
 
@@ -60,6 +60,7 @@ Lite-Mono 코드가 읽지만 저장소에 포함되지 않은 파일이다. 모
 |---|---|---|
 | `options.py`, `trainer.py` | `--seed`. 지정하지 않으면 원본처럼 seed 없음 | 지정하면 B/I/C가 같은 초기화·데이터 순서·증강을 봄 |
 | `trainer.py` | 이어서 학습: `train_state.json`(epoch, step, 누적 시간, peak GPU memory)을 저장하고, `--load_weights_folder`에 이 파일이 있으면 다음 epoch부터 재개. scheduler는 epoch 수만큼 `step()`을 다시 불러 같은 learning rate를 복원. 재개할 때는 `--mypretrain`으로 덮어쓰지 않음 | 계산식은 같음. 재개한 run은 끊김 없는 run과 데이터 순서가 달라 비트 단위로 같지는 않음 |
+| `trainer.py` | 진행률: 로그 줄에 전체 진행률(%) 추가. 남은 시간은 이번 세션에서 처리한 step으로 계산(원본 식은 재개 후 누적 step을 이번 세션 시간으로 나눠 크게 과소 추정). `time elapsed`는 누적 시간 | 출력만 바뀜. 처음부터 학습하면 남은 시간 값은 원본과 같음 |
 | `trainer.py` `save_model()` | 매 epoch의 encoder/depth는 모두 보관하고, 재개에만 필요한 pose·optimizer 파일(~175MB)은 최신 epoch 것만 남김 | 없음 (저장 공간만 절약) |
 
 ## 가중치와 코드 일치 확인 (2026-11-08, 정적 검사)
