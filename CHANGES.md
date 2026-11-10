@@ -65,9 +65,17 @@ Lite-Mono 논문(CVPR 2023)과 공식 코드 설정에서 **이 프로젝트가 
 | `trainer.py` (pretrain 로드) | torch 2.6부터 `weights_only=True` 기본값 | `safe_globals`로 필요한 타입만 허용 | `weights_only=False` (체크섬 확인한 파일만) |
 | `trainer.py` (val) | `iterator.next()` 삭제 | `next(iterator)` | 같음 |
 | `kitti_utils.py` | NumPy 1.24에서 `np.int` 삭제 | `int` | 같음 |
-| `export_gt_depth.py` | 최신 NumPy가 크기 다른 배열 묶음 거부 | 파일 없음 | 수정해서 추가 |
+| `export_gt_depth.py` | 최신 NumPy가 크기 다른 배열 묶음 거부 | Colab 브랜치 파일을 그대로 가져옴 (2026-11-09) | 수정해서 추가 |
 
-로컬 수정 내역 전체: `vendor/changes_from_upstream.patch` (upstream `4874b35` 대비 4개 파일 +19/−8줄). 중첩 `.git`은 저장소 밖 `/home/user/sangbum/Lite-Mono-upstream.git`으로 옮겼다.
+로컬 수정 내역 전체: `vendor/changes_from_upstream.patch` (upstream `4874b35` 대비 수정 5개 파일 + 추가 `export_gt_depth.py`). 중첩 `.git`은 저장소 밖 `/home/user/sangbum/Lite-Mono-upstream.git`으로 옮겼다.
+
+### 4.1b 버그 수정 — 평가 입력에만 영향 ⚠️
+
+| 파일 | 문제 | 로컬 | Colab |
+|---|---|---|---|
+| `evaluate_depth.py` | `--png`를 줘도 평가 데이터셋에 `img_ext`를 넘기지 않아 항상 `.jpg`를 읽음 (monodepth2부터 있던 upstream 버그) | `img_ext='.png' if opt.png else '.jpg'` 전달 (2026-11-09) | 수정 없음 (JPG 사용이라 문제 없음) |
+
+- 로컬은 PNG만 있어서 이 수정 없이는 평가가 FileNotFoundError로 실패한다. 계산 방식(median scaling, 80m, Garg crop)은 그대로다.
 
 ### 4.2 기능 추가
 
@@ -81,15 +89,18 @@ Lite-Mono 논문(CVPR 2023)과 공식 코드 설정에서 **이 프로젝트가 
 
 ### 4.3 upstream에 없어서 추가한 파일 (monodepth2 commit `19e16e1`)
 - `splits/eigen_zhou/{train,val}_files.txt`: 로컬 ✅ / Colab ✅
-- `export_gt_depth.py`, `LICENSE_monodepth2`: 로컬 ✗ / Colab ✅
+- `export_gt_depth.py`, `LICENSE_monodepth2`: 로컬 ✅ (2026-11-09, Colab 브랜치에서 가져옴) / Colab ✅
+- `splits/eigen/gt_depths.npz`: 로컬에서 PNG와 같은 velodyne 원본으로 생성 (`*.npz` gitignore라 커밋 안 됨, `export_gt_depth.py --split eigen`으로 재생성)
 
 ## 5. 실행 기록
 
 | run | 환경 | 날짜 | 조건 | 논문과 다른 점 | 상태 |
 |---|---|---|---|---|---|
-| `20261109_baseline_unseeded` | 로컬 | 2026-11-09 시작 | 공식 하이퍼파라미터, ImageNet 초기화 | ⚠️ PNG 입력, seed 없음, num_workers 6 | 진행 중 (2026-11-09 기준 epoch 12/30, `weights_0`~`11` 저장됨) |
+| `20261109_baseline_unseeded` | 로컬 | 2026-11-09 시작 | 공식 하이퍼파라미터, ImageNet 초기화 | ⚠️ PNG 입력, seed 없음, num_workers 6 | 완료 (2026-11-09 22:09, 약 9시간). Eigen test `weights_29`: AbsRel 0.107 / SqRel 0.821 / RMSE 4.608 / RMSElog 0.184 / δ₁ 0.887 / δ₂ 0.962 / δ₃ 0.982. 상세: `experiments/20261109_baseline_unseeded.md` |
+| 공개 checkpoint 평가 | 로컬 | 2026-11-09 | `pretrained/kitti_640x192`, 학습 없음 | ⚠️ PNG 입력으로 평가 (checkpoint는 JPG로 학습됨) | 완료. AbsRel 0.107 / SqRel 0.766 / RMSE 4.560 / RMSElog 0.183 / δ₁ 0.886 / δ₂ 0.963 / δ₃ 0.983 (논문과 같음). 로그: `outputs/public_kitti_640x192_eval/eval_png.log` |
 
-- 이 run은 PNG 입력이라 논문 수치와 직접 비교하는 baseline으로 쓰기 어렵다. 공식 코드를 그대로 돌린 참고용 결과로 다룬다.
+- 이 run은 PNG 입력이라 논문과 조건이 완전히 같지는 않다. 그래도 AbsRel·RMSE log·δ는 논문과 ±0.001 안이고, SqRel(+0.056)과 RMSE(+0.047)만 약간 높다. 로컬 개선 실험의 baseline으로 쓴다.
+- SqRel 차이가 PNG 입력 때문인지 run 편차(seed 없음) 때문인지는 아직 모른다. epoch 19~29 사이에서도 SqRel이 0.795~0.867로 흔들렸다.
 
 ## 6. 알려진 문제
 
@@ -98,9 +109,9 @@ Lite-Mono 논문(CVPR 2023)과 공식 코드 설정에서 **이 프로젝트가 
 
 ## 7. 아직 확인 못 한 것
 
-- 공개 checkpoint(`pretrained/kitti_640x192`)로 논문 AbsRel 0.107이 재현되는지 (로컬·Colab 모두 미확인).
+- 공개 checkpoint 재현: 로컬 PNG 입력으로는 확인됨(5장). Colab JPG 입력은 미확인.
 - 논문의 학습 GPU·소프트웨어 버전 원문 표기.
-- PNG와 JPG 학습의 실제 성능 차이.
+- PNG와 JPG 학습의 실제 성능 차이 (특히 SqRel 0.821 vs 0.765).
 
 ---
 
@@ -112,3 +123,4 @@ Lite-Mono 논문(CVPR 2023)과 공식 코드 설정에서 **이 프로젝트가 
 | 2026-11-09 | (로컬) 공식 코드 반입·호환 수정, PNG·unseeded baseline 학습 시작 |
 | 2026-11-09 | 로컬·Colab을 함께 다루는 CHANGES.md 작성. Colab 브랜치 `datasets/` 누락 발견 |
 | 2026-11-09 | 로컬 코드를 `Local` 브랜치에 커밋. `.gitignore` `datasets/` → `/datasets/`, 로컬 수정 patch 저장 |
+| 2026-11-09 | (로컬) baseline 학습 완료·Eigen test 평가 (AbsRel 0.107). `evaluate_depth.py` `--png` 버그 수정, `export_gt_depth.py` 반입, `scripts/eval_eigen.sh` 추가, 공개 checkpoint 평가 |
