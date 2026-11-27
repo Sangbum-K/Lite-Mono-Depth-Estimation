@@ -39,6 +39,9 @@ class LiteMonoOptions:
                                  type=float,
                                  help="weight decay in AdamW",
                                  default=1e-2)
+        self.parser.add_argument("--hires_decoder",
+                                 help="local: 1/2-res stem skip + learned 2x upsampling in the depth decoder",
+                                 action="store_true")
         self.parser.add_argument("--drop_path",
                                  type=float,
                                  help="drop path rate",

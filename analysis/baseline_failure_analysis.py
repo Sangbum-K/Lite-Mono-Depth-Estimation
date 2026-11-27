@@ -63,7 +63,7 @@ def compute_errors(gt, pred):
     return abs_rel, sq_rel, rmse, rmse_log, a1, a2, a3
 
 
-def predict_disps(weights, data_path, num_workers):
+def predict_disps(weights, data_path, num_workers, hires_decoder=False):
     import torch
     from torch.utils.data import DataLoader
     import datasets
@@ -78,10 +78,14 @@ def predict_disps(weights, data_path, num_workers):
                                        [0], 4, is_train=False, img_ext=".png")
     loader = DataLoader(dataset, 16, shuffle=False, num_workers=num_workers,
                         pin_memory=True, drop_last=False)
-    encoder = networks.LiteMono(model="lite-mono", height=enc_dict["height"], width=enc_dict["width"])
-    decoder = networks.DepthDecoder(encoder.num_ch_enc, scales=range(3))
+    encoder = networks.LiteMono(model="lite-mono", height=enc_dict["height"], width=enc_dict["width"],
+                                return_stem=hires_decoder)
+    Decoder = networks.HiResDepthDecoder if hires_decoder else networks.DepthDecoder
+    decoder = Decoder(encoder.num_ch_enc, scales=range(3))
     encoder.load_state_dict({k: v for k, v in enc_dict.items() if k in encoder.state_dict()})
     decoder.load_state_dict({k: v for k, v in dec_dict.items() if k in decoder.state_dict()})
+    missing = [k for k in decoder.state_dict() if k not in dec_dict or dec_dict[k].shape != decoder.state_dict()[k].shape]
+    assert not missing, "decoder checkpoint does not match (use --hires_decoder?): {}".format(missing[:3])
     encoder.cuda().eval()
     decoder.cuda().eval()
     out = []
@@ -102,10 +106,20 @@ def eval_mask(gt):
     return np.logical_and(mask, crop_mask)
 
 
+def disp_at(pred_disp, shape):
+    """Disparity at GT resolution. Network-resolution predictions (smaller than GT, e.g.
+    Lite-Mono 192x640) are resized exactly as evaluate_depth.py does. Native-resolution
+    predictions (e.g. Depth Pro 2), stored zero-padded to the largest KITTI size, are cropped
+    to the GT shape without any interpolation."""
+    h, w = shape
+    if pred_disp.shape[0] >= h and pred_disp.shape[1] >= w:
+        return np.maximum(pred_disp[:h, :w], 1e-6)
+    return cv2.resize(pred_disp, (w, h))
+
+
 def scaled_pred(pred_disp, gt, mask):
     """Full-resolution median-scaled predicted depth (same ops as evaluate_depth)."""
-    h, w = gt.shape
-    depth = 1.0 / cv2.resize(pred_disp, (w, h))
+    depth = 1.0 / disp_at(pred_disp, gt.shape)
     ratio = np.median(gt[mask]) / np.median(depth[mask])
     depth = np.clip(depth * ratio, MIN_DEPTH, MAX_DEPTH)
     return depth, ratio
@@ -206,6 +220,7 @@ def main():
     p.add_argument("--n_random", type=int, default=10)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--reuse_disps", action="store_true")
+    p.add_argument("--hires_decoder", action="store_true", help="checkpoint trained with --hires_decoder")
     p.add_argument("--no_figs", action="store_true")
     opt = p.parse_args()
     os.makedirs(opt.out, exist_ok=True)
@@ -215,7 +230,7 @@ def main():
     if opt.reuse_disps and os.path.exists(disp_path):
         disps = np.load(disp_path)
     else:
-        disps = predict_disps(opt.weights, opt.data_path, opt.num_workers)
+        disps = predict_disps(opt.weights, opt.data_path, opt.num_workers, opt.hires_decoder)
         np.save(disp_path, disps)
     gts = np.load(os.path.join(LITEMONO, "splits", "eigen", "gt_depths.npz"),
                   fix_imports=True, encoding="latin1", allow_pickle=True)["data"]
@@ -399,7 +414,7 @@ def main():
         mask = eval_mask(gt)
         pred, _ = scaled_pred(disps[i], gt, mask)
         rgb = load_rgb(opt.data_path, lines[i])
-        disp_full = cv2.resize(disps[i], (gt.shape[1], gt.shape[0]))
+        disp_full = disp_at(disps[i], gt.shape)
         return rgb, disp_full, gt, pred, mask
 
     def title(i, tag):

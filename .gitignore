@@ -19,7 +19,11 @@ weights/
 checkpoints/
 pretrained/
 logs/
-outputs/
+# outputs/: checkpoints, logs and tables stay local; figures (png/pdf) are tracked
+outputs/**
+!outputs/**/
+!outputs/**/*.png
+!outputs/**/*.pdf
 *.pth
 *.pt
 *.ckpt

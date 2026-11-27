@@ -86,6 +86,7 @@ Lite-Mono 논문(CVPR 2023)과 공식 코드 설정에서 **이 프로젝트가 
 | checkpoint 정리 | 없음 (모든 epoch 전부 저장) | pose/optimizer 파일은 최신 것만 저장 | ➖ |
 | 진행률·남은 시간 출력 | 없음 | 있음 | ➖ |
 | pretrain 로드 메시지 | 불러온 텐서 수 출력 (`233/263`) | 원본 그대로 | ➖ |
+| `--hires_decoder` (개선안 A, 2026-11-27) | 있음: encoder가 1/2 해상도 stem 특징도 반환(`return_stem`), `HiResDepthDecoder`가 마지막 단계에 그 skip을 붙이고 scale-0 disparity를 학습형 2× transposed conv로 만듦(+11,848 파라미터, +0.39%) | 없음 | ⚠️ 켜면 모델 구조가 바뀜(실험용). 끄면 원본과 같음: 공개 checkpoint 출력이 완전히 같은 것 확인 |
 
 ### 4.3 upstream에 없어서 추가한 파일 (monodepth2 commit `19e16e1`)
 - `splits/eigen_zhou/{train,val}_files.txt`: 로컬 ✅ / Colab ✅
@@ -134,3 +135,9 @@ Lite-Mono 논문(CVPR 2023)과 공식 코드 설정에서 **이 프로젝트가 
 | 2026-11-27 | (로컬) 경계 그림에서 LiDAR 기반 "true edge" 초록 점 제거 (유리 투과·노이즈 때문에 경계 정답으로 보기 어려움) |
 | 2026-11-27 | (로컬) `boundary_zoom/edge/idx*_zoom.png`의 (h) 패널을 경계 종류 지도에서 "예측 위 LiDAR 점" 겹침으로 교체 (`--select edge --crop_h 72`) |
 | 2026-11-27 | (로컬) `idx*_zoom.png`에서 (i) 단면 그래프와 관련 표시(사진 위 점선, 규칙 기반 경계 수치) 삭제, `idx*_profile.png` 생성 중단 |
+| 2026-11-27 | (로컬) Depth Pro 2 기준선 비교: 분리 환경 `third_party/.venv-dp2`(메인 `.venv`에 av·pillow-heif 추가 안 함), `analysis/run_depth_pro_2.py`, `compare_models.py`, `compare_sheet.py`. `baseline_failure_analysis.disp_at` 추가(원본 해상도 예측은 보간 없이 crop, Lite-Mono 결과 불변 확인) |
+| 2026-11-27 | (로컬) Depth Pro 2-H+ 추론·비교 추가 (`outputs/depth_pro_2/h`, `compare/`) |
+| 2026-11-27 | (로컬) 개선안 A `--hires_decoder` 구현(`networks/depth_encoder.py`, `depth_decoder.py`, `options.py`, `trainer.py`, `evaluate_depth.py`), patch 갱신. 5 epoch pilot `20261127_hires_decoder_e5` 시작 (첫 시도는 분석 작업과 동시 실행해 RAM OOM으로 중단, 단독으로 다시 실행) |
+| 2026-11-27 | (로컬) A안 학습이 단독 실행에서도 RAM OOM(16:33)으로 중단. 사용자가 터미널에서 `--num_workers 4`로 직접 실행하기로 함(데이터 로딩 worker 수만 다름, 학습 계산은 같음). `baseline_failure_analysis.py`에 `--hires_decoder` 옵션과 decoder 가중치 일치 검사 추가 |
+| 2026-11-27 | (로컬) 중간 보고서 초안 `reports/HW2_Intermediate_Report_draft.docx` 작성 (proposal docx 서식 재사용). 그림은 기존 분석 그림을 잘라 붙임: `analysis/intermediate_report_figures.py` → `reports/figures/intermediate/`. 원고 `reports/intermediate_draft.md`(직접 작성), docx 서식 변환 `reports/intermediate_src/build_intermediate.py`. A안 pilot 결과 칸은 비워 둠(TBD) |
+| 2026-11-27 | `.gitignore`: `outputs/` 안의 그림(png/pdf)만 git에 포함하도록 변경(93개, 약 100MB). checkpoint·로그·csv는 계속 제외 |

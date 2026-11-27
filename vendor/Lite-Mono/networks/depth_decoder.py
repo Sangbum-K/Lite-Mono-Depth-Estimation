@@ -63,3 +63,50 @@ class DepthDecoder(nn.Module):
 
         return self.outputs
 
+
+
+class HiResDepthDecoder(DepthDecoder):
+    """Local variant (option --hires_decoder), not in the Lite-Mono paper.
+
+    Two changes to the last decoder stage, everything else is identical to DepthDecoder:
+      1. skip connection from the encoder's 1/2-resolution stem feature (discarded by the
+         original decoder, whose finest skip is 1/4 resolution);
+      2. the full-resolution disparity (scale 0) comes from a learned 2x transposed-conv
+         head instead of a 3x3 conv at 1/2 resolution followed by bilinear upsampling.
+    Idea adapted from the learned (transposed-conv) upsampling of DPT / Depth Pro / Depth Pro 2
+    and the high-resolution skip fusion of HR-Depth (Lyu et al., AAAI 2021).
+    Input: [stem_half, f_1/4, f_1/8, f_1/16] from LiteMono(return_stem=True).
+    """
+
+    def __init__(self, num_ch_enc, scales=range(4), num_output_channels=1, use_skips=True, num_ch_stem=48):
+        super().__init__(num_ch_enc, scales, num_output_channels, use_skips)
+        c0 = int(self.num_ch_dec[0])
+        self.convs[("upconv", 0, 1)] = ConvBlock(c0 + num_ch_stem, c0)
+        if 0 in self.scales:
+            self.convs[("dispconv", 0)] = nn.Sequential(
+                nn.ConvTranspose2d(c0, 16, kernel_size=2, stride=2),
+                nn.ELU(inplace=True),
+                Conv3x3(16, num_output_channels))
+        self.decoder = nn.ModuleList(list(self.convs.values()))
+        self.apply(self._init_weights)
+
+    def forward(self, input_features):
+        stem, input_features = input_features[0], input_features[1:]
+        self.outputs = {}
+        x = input_features[-1]
+        for i in range(2, -1, -1):
+            x = self.convs[("upconv", i, 0)](x)
+            x = [upsample(x)]
+            if self.use_skips and i > 0:
+                x += [input_features[i - 1]]
+            if i == 0:
+                x += [stem]
+            x = torch.cat(x, 1)
+            x = self.convs[("upconv", i, 1)](x)
+            if i in self.scales:
+                if i == 0:
+                    f = self.convs[("dispconv", 0)](x)  # learned 2x upsampling to full resolution
+                else:
+                    f = upsample(self.convs[("dispconv", i)](x), mode='bilinear')
+                self.outputs[("disp", i)] = self.sigmoid(f)
+        return self.outputs

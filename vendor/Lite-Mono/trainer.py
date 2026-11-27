@@ -57,13 +57,14 @@ class Trainer:
 
         self.models["encoder"] = networks.LiteMono(model=self.opt.model,
                                                    drop_path_rate=self.opt.drop_path,
-                                                   width=self.opt.width, height=self.opt.height)
+                                                   width=self.opt.width, height=self.opt.height,
+                                                   return_stem=self.opt.hires_decoder)
 
         self.models["encoder"].to(self.device)
         self.parameters_to_train += list(self.models["encoder"].parameters())
 
-        self.models["depth"] = networks.DepthDecoder(self.models["encoder"].num_ch_enc,
-                                                     self.opt.scales)
+        Decoder = networks.HiResDepthDecoder if self.opt.hires_decoder else networks.DepthDecoder
+        self.models["depth"] = Decoder(self.models["encoder"].num_ch_enc, self.opt.scales)
         self.models["depth"].to(self.device)
         self.parameters_to_train += list(self.models["depth"].parameters())
 
