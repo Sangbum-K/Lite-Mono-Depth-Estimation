@@ -48,7 +48,7 @@ Eigen test 697장. 논문 보고 방식대로 마지막 epoch(`weights_29`)를 �
 - median scaling ratio: 이 run 32.491 ± 0.087, 공개 checkpoint 32.591 ± 0.088
 - Parameters: 3.069M (encoder 2.842M + decoder 226.6K), FLOPs 5.032G (evaluate_depth.py thop 출력)
 - Batch-1 latency: 측정 안 함
-- Qualitative figure paths: 아직 없음
+- Qualitative figure paths: `outputs/20261109_baseline_unseeded/analysis/weights_29/figs/` (worst 20 / best 5 / random 10, `overview_*.png`, `signed_*.png`). 생성: `analysis/baseline_failure_analysis.py`
 
 ### epoch별 추이 (참고용, test로 checkpoint를 고르지 않는다)
 
@@ -90,6 +90,30 @@ Eigen test 697장. 논문 보고 방식대로 마지막 epoch(`weights_29`)를 �
 - What improved: AbsRel·RMSE log·δ₁~δ₃는 논문과 ±0.001 안에 들어온다. δ₁ 0.887은 논문(0.886)보다 약간 높다.
 - What became worse: SqRel 0.821 (논문 0.765, +7%), RMSE 4.608 (논문 4.561, +1%). 큰 오차 쪽이 약간 크다.
 - 안정성: epoch 19 이후 AbsRel 0.107~0.110 범위에서 수렴. SqRel은 epoch마다 0.79~0.87로 흔들려 run 간 편차도 이 정도는 있을 것으로 보인다. seed 없는 run 하나라 차이가 의미 있는지는 판단 불가.
-- Failure cases: 아직 정성 분석 안 함.
+- Failure cases (2026-11-23, `analysis/baseline_failure_analysis.py`, 상세: `outputs/.../analysis/weights_29/summary.md`):
+  - 평균을 재계산하면 evaluate_depth.py와 같다 (0.107 / 0.821 / 4.608 …), 프로토콜 일치 확인.
+  - 이미지별 AbsRel: median 0.098, p90 0.162, max 0.291. 최악 10%(70장)가 AbsRel 합의 17.9%. 소수 이미지가 평균을 끌어올리는 구조는 아니다.
+  - **깊이 불연속 근처(GT 9×9 안에서 깊이 1.25배 이상 차이)**: 점의 11.5%인데 AbsRel 합의 28.1%. AbsRel 0.260 vs 나머지 0.086 (3배). 이미지별 AbsRel과의 Spearman +0.54로 조사한 요인 중 가장 강하다. LiDAR·카메라 시차 artifact도 섞여 있어 정성 확인이 필요하다.
+  - **거리**: 0–20m 0.088 / 20–40m 0.155 / 40–80m 0.201. 40m 이상은 평균적으로 너무 가깝게 예측(mean log(pred/gt) −0.147). 다만 점의 5.7%, AbsRel 합의 10.8%.
+  - 정성 유형: (a) 물체·나무 기둥·차량 윤곽의 경계 번짐, (b) 트인 장면에서 지평선 근처 수풀·가로수 띠를 너무 멀게 예측(idx 152, 164), (c) 큰 건물 벽면을 너무 가깝게 예측(idx 549, ≥40m에서 log −0.94), (d) 철망·덤불처럼 뒤가 비치는 구조물(drive 0086, idx 395/394/374)에서 LiDAR는 뒤를, 모델은 앞면을 봐서 오차가 섞임(GT 모호성 포함).
+  - 최상 5장은 모두 drive 0002(도로·근거리 위주).
+  - 경계 양쪽 분리 (2026-11-23): 배경 쪽 AbsRel 0.293, log(pred/gt) −0.348 (29% 가깝게), δ₁ 0.396 / 앞 물체 쪽 0.282, +0.162 (18% 멀게). 깊이가 경계를 넘어 섞이는 번짐(edge fattening).
+  - 상위 30% 209장 검사 (`analysis/inspect_worst_fraction.py`, `.../weights_29/worst30/`): 상위 30%는 나머지보다 경계(0.329 vs 0.221)뿐 아니라 평탄 영역(0.129 vs 0.070)·0–20m(0.139 vs 0.067)에서도 오차가 크다. 오차 중 경계 비중은 비슷하다(29.9% vs 26.8%). 즉 경계 번짐은 모든 이미지의 공통 약점이고, 최악 이미지는 장면 전체 구조 오류가 겹친 경우다.
+  - 209장을 직접 본 경향 (Claude가 확인, 이미지별 라벨은 아직 없음, `labels_template.csv`):
+    - 주차·정차 차량 윤곽, 특히 윗선을 따라 배경을 가깝게 예측하는 띠: 차량이 있는 이미지 대부분
+    - 대형 트럭·정체 차량 장면: drive 0052가 25장 중 22장
+    - 보행자·자전거가 많은 장면: 0071, 09_28_0002
+    - 고속도로·트인 장면에서 먼 수풀 띠를 너무 멀게 예측: 0029, 10_03_0047, 0101
+    - 철망·덤불처럼 뒤가 비치는 구조물: 0086
+    - 앞 차량 일부를 너무 멀게 예측: 같은 방향으로 움직이는 물체 문제로 추정
+  - 투과 점 분리 (2026-11-27): 경계 배경 쪽 점 중 같은 줄의 좌우 20px 안에 더 가까운 점이 모두 있는 점(유리창·철망 너머, GT 모호)은 오차의 1.2%뿐이다. 윤곽 바깥 배경 쪽이 12.3% (AbsRel 0.288, log −0.338). 다만 차 유리창은 20px보다 넓어서 이 판정을 일부 빠져나간다.
+  - 픽셀 단위 경계 위치 (`analysis/edge_offset.py`, `.../weights_29/edges/summary.md`): 양쪽이 일관된 면인 LiDAR 깊이 경계 3,263개(645장)를 대상으로 했다.
+    - 정확(±4 GT px 이내) 25.4%
+    - 배경 쪽으로 >4px 밀림(번짐) 27.7%
+    - 앞 물체 쪽으로 >4px 밀림 7.1%
+    - 앞 물체를 놓침 22.9%
+    - 배경에 끝까지 닿지 않음 16.9% (주로 유리·철망 너머로 추정)
+    - 위치를 측정한 경계의 중앙값 +3.5px. 배경 쪽 대 앞 물체 쪽 비대칭이 약 4:1이라 앞 물체가 바깥으로 부푼다.
+  - 보고서용 그림 (`analysis/boundary_zoom_figures.py`, `.../weights_29/boundary_zoom/edge/`): 밀린 거리 8–24px, 깊이 비 ≥2, drive당 1개 규칙으로 idx 213, 364, 68, 480, 529를 골랐다. `abs_rel/`은 AbsRel 최악 5장(395, 152, 394, 549, 164)이다.
 - Deviations from the planned protocol: PNG 입력(논문 JPG), seed 없음, num_workers 6, 평가 코드의 `--png` 무시 버그 수정 (CHANGES.md 참고). 공개 checkpoint는 JPG로 학습됐지만 PNG 입력으로 평가해도 논문 수치가 그대로 나온다.
 - Next action: 이 run을 로컬 baseline으로 사용. SqRel 차이가 PNG/JPG 때문인지 run 편차인지 보려면 JPG 학습 또는 seed 고정 반복 실행이 필요하다.

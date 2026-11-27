@@ -35,3 +35,6 @@ tensorboard/
 # Local machine paths and secrets
 .env
 configs/paths.env
+
+# External reference repos (read-only, not part of this project)
+/third_party/

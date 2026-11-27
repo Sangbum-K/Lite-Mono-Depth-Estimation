@@ -20,7 +20,7 @@ Lite-Mono 논문(CVPR 2023)과 공식 코드 설정에서 **이 프로젝트가 
 | Python | 기재 없음 (monodepth2 계열은 3.6~3.8대) | 3.11.15 (`.venv`) | Colab 기본 |
 | PyTorch / torchvision | 구버전 (정확한 버전 기재 없음) | 2.11.0+cu128 / 0.26.0+cu128 | Colab 기본 (pip freeze로 기록) |
 | NumPy / Pillow | 구버전 | 1.26.4 / 12.2.0 | Colab 기본 |
-| 기타 패키지 | README의 pip 목록 | timm 1.0.31, tensorboardX 2.6.5, thop 0.1.1, scikit-image 0.26.0, opencv-python-headless 4.11.0.86 | `environment/requirements-colab.txt` (버전 미고정) |
+| 기타 패키지 | README의 pip 목록 | (분석 전용 추가: matplotlib 3.11.2, 2026-11-23) timm 1.0.31, tensorboardX 2.6.5, thop 0.1.1, scikit-image 0.26.0, opencv-python-headless 4.11.0.86 | `environment/requirements-colab.txt` (버전 미고정) |
 | LR scheduler 패키지 | README: git 저장소 최신 | commit `73bf958` 고정 | commit `73bf958` 고정 |
 
 ➖ 라이브러리가 새 버전이라 일부 코드 수정이 필요했다(4장). GPU·라이브러리 차이로 수치가 완전히 같게 나오지는 않을 수 있다.
@@ -97,6 +97,7 @@ Lite-Mono 논문(CVPR 2023)과 공식 코드 설정에서 **이 프로젝트가 
 | run | 환경 | 날짜 | 조건 | 논문과 다른 점 | 상태 |
 |---|---|---|---|---|---|
 | `20261109_baseline_unseeded` | 로컬 | 2026-11-09 시작 | 공식 하이퍼파라미터, ImageNet 초기화 | ⚠️ PNG 입력, seed 없음, num_workers 6 | 완료 (2026-11-09 22:09, 약 9시간). Eigen test `weights_29`: AbsRel 0.107 / SqRel 0.821 / RMSE 4.608 / RMSElog 0.184 / δ₁ 0.887 / δ₂ 0.962 / δ₃ 0.982. 상세: `experiments/20261109_baseline_unseeded.md` |
+| 실패 분석 `weights_29` | 로컬 | 2026-11-23 | `analysis/baseline_failure_analysis.py`, 이미지별·거리별·영역별 오차와 고정 규칙 샘플 그림 | ➖ 평가 프로토콜 그대로 (평균 재계산 일치) | 완료. 결과: `outputs/20261109_baseline_unseeded/analysis/weights_29/summary.md`, 요약은 실험 기록 |
 | 공개 checkpoint 평가 | 로컬 | 2026-11-09 | `pretrained/kitti_640x192`, 학습 없음 | ⚠️ PNG 입력으로 평가 (checkpoint는 JPG로 학습됨) | 완료. AbsRel 0.107 / SqRel 0.766 / RMSE 4.560 / RMSElog 0.183 / δ₁ 0.886 / δ₂ 0.963 / δ₃ 0.983 (논문과 같음). 로그: `outputs/public_kitti_640x192_eval/eval_png.log` |
 
 - 이 run은 PNG 입력이라 논문과 조건이 완전히 같지는 않다. 그래도 AbsRel·RMSE log·δ는 논문과 ±0.001 안이고, SqRel(+0.056)과 RMSE(+0.047)만 약간 높다. 로컬 개선 실험의 baseline으로 쓴다.
@@ -124,3 +125,12 @@ Lite-Mono 논문(CVPR 2023)과 공식 코드 설정에서 **이 프로젝트가 
 | 2026-11-09 | 로컬·Colab을 함께 다루는 CHANGES.md 작성. Colab 브랜치 `datasets/` 누락 발견 |
 | 2026-11-09 | 로컬 코드를 `Local` 브랜치에 커밋. `.gitignore` `datasets/` → `/datasets/`, 로컬 수정 patch 저장 |
 | 2026-11-09 | (로컬) baseline 학습 완료·Eigen test 평가 (AbsRel 0.107). `evaluate_depth.py` `--png` 버그 수정, `export_gt_depth.py` 반입, `scripts/eval_eigen.sh` 추가, 공개 checkpoint 평가 |
+| 2026-11-23 | (로컬) baseline 실패 분석 스크립트·결과 추가, 분석용 matplotlib 설치 |
+| 2026-11-23 | (로컬) 상위 30% 검사 스크립트, 경계 양쪽 분리 분석 추가. Depth Pro 2 저장소를 `third_party/`에 받음(gitignore, 학습·평가 코드에는 사용 안 함), 분석 노트 `research/depth_pro_2_notes.md` |
+| 2026-11-27 | (로컬) 경계 픽셀 단위 위치 분석(`analysis/edge_offset.py`), 보고서용 경계 확대 그림(`analysis/boundary_zoom_figures.py`), 투과 점 분리를 분석 요약에 추가 |
+| 2026-11-27 | (로컬) 보고서용 A4 경계 그림 `boundary_zoom/edge/summary_a4.{png,pdf}` 생성 (`analysis/boundary_zoom_figures.py --select edge`) |
+| 2026-11-27 | (로컬) 보고서용 경계 비교 그림을 사진 위 경계 표시 방식으로 교체: `analysis/boundary_overlay_figure.py` → `boundary_overlay/overlay_a4.{png,pdf}` |
+| 2026-11-27 | (로컬) idx 364 단일 경계 그림(LiDAR-예측 겹침 패널 포함): `boundary_overlay_figure.py --single 364` → `boundary_overlay/single_idx364.{png,pdf}` |
+| 2026-11-27 | (로컬) 경계 그림에서 LiDAR 기반 "true edge" 초록 점 제거 (유리 투과·노이즈 때문에 경계 정답으로 보기 어려움) |
+| 2026-11-27 | (로컬) `boundary_zoom/edge/idx*_zoom.png`의 (h) 패널을 경계 종류 지도에서 "예측 위 LiDAR 점" 겹침으로 교체 (`--select edge --crop_h 72`) |
+| 2026-11-27 | (로컬) `idx*_zoom.png`에서 (i) 단면 그래프와 관련 표시(사진 위 점선, 규칙 기반 경계 수치) 삭제, `idx*_profile.png` 생성 중단 |
