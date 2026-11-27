@@ -118,7 +118,7 @@ def main():
             mask = B.eval_mask(gt)
             pred, _ = B.scaled_pred(disps[i], gt, mask)
             rgb = B.load_rgb(opt.data_path, lines[i])
-            disp = cv2.resize(disps[i], (gt.shape[1], gt.shape[0]))
+            disp = B.disp_at(disps[i], gt.shape)
             lr = np.log(pred[mask]) - np.log(gt[mask])
             ys, xs = np.nonzero(mask)
             r = rows[i]

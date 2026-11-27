@@ -12,10 +12,10 @@ index 7dcd36a..c5263a6 100644
          self.frame_idxs = frame_idxs
  
 diff --git a/evaluate_depth.py b/evaluate_depth.py
-index f6f00c9..ece07e3 100644
+index f6f00c9..6785666 100644
 --- a/evaluate_depth.py
 +++ b/evaluate_depth.py
-@@ -95,7 +95,8 @@ def evaluate(opt):
+@@ -95,14 +95,16 @@ def evaluate(opt):
  
          dataset = datasets.KITTIRAWDataset(opt.data_path, filenames,
                                             encoder_dict['height'], encoder_dict['width'],
@@ -25,6 +25,16 @@ index f6f00c9..ece07e3 100644
          dataloader = DataLoader(dataset, 16, shuffle=False, num_workers=opt.num_workers,
                                  pin_memory=True, drop_last=False)
  
+-        encoder = networks.LiteMono(model=opt.model,
++        encoder = networks.LiteMono(model=opt.model, return_stem=opt.hires_decoder,
+                                     height=encoder_dict['height'],
+                                     width=encoder_dict['width'])
+-        depth_decoder = networks.DepthDecoder(encoder.num_ch_enc, scales=range(3))
++        Decoder = networks.HiResDepthDecoder if opt.hires_decoder else networks.DepthDecoder
++        depth_decoder = Decoder(encoder.num_ch_enc, scales=range(3))
+         model_dict = encoder.state_dict()
+         depth_model_dict = depth_decoder.state_dict()
+         encoder.load_state_dict({k: v for k, v in encoder_dict.items() if k in model_dict})
 diff --git a/export_gt_depth.py b/export_gt_depth.py
 new file mode 100644
 index 0000000..a0c950f
@@ -113,6 +123,121 @@ index 85c5d7e..b2cdc90 100644
  
      # find the duplicate points and choose the closest depth
      inds = sub2ind(depth.shape, velo_pts_im[:, 1], velo_pts_im[:, 0])
+diff --git a/networks/__init__.py b/networks/__init__.py
+index 98f5382..acfc2f4 100644
+--- a/networks/__init__.py
++++ b/networks/__init__.py
+@@ -1,4 +1,4 @@
+ from .resnet_encoder import ResnetEncoder
+ from .pose_decoder import PoseDecoder
+-from .depth_decoder import DepthDecoder
++from .depth_decoder import DepthDecoder, HiResDepthDecoder
+ from .depth_encoder import LiteMono
+diff --git a/networks/depth_decoder.py b/networks/depth_decoder.py
+index ec2b29f..23f8ee5 100644
+--- a/networks/depth_decoder.py
++++ b/networks/depth_decoder.py
+@@ -63,3 +63,50 @@ class DepthDecoder(nn.Module):
+ 
+         return self.outputs
+ 
++
++
++class HiResDepthDecoder(DepthDecoder):
++    """Local variant (option --hires_decoder), not in the Lite-Mono paper.
++
++    Two changes to the last decoder stage, everything else is identical to DepthDecoder:
++      1. skip connection from the encoder's 1/2-resolution stem feature (discarded by the
++         original decoder, whose finest skip is 1/4 resolution);
++      2. the full-resolution disparity (scale 0) comes from a learned 2x transposed-conv
++         head instead of a 3x3 conv at 1/2 resolution followed by bilinear upsampling.
++    Idea adapted from the learned (transposed-conv) upsampling of DPT / Depth Pro / Depth Pro 2
++    and the high-resolution skip fusion of HR-Depth (Lyu et al., AAAI 2021).
++    Input: [stem_half, f_1/4, f_1/8, f_1/16] from LiteMono(return_stem=True).
++    """
++
++    def __init__(self, num_ch_enc, scales=range(4), num_output_channels=1, use_skips=True, num_ch_stem=48):
++        super().__init__(num_ch_enc, scales, num_output_channels, use_skips)
++        c0 = int(self.num_ch_dec[0])
++        self.convs[("upconv", 0, 1)] = ConvBlock(c0 + num_ch_stem, c0)
++        if 0 in self.scales:
++            self.convs[("dispconv", 0)] = nn.Sequential(
++                nn.ConvTranspose2d(c0, 16, kernel_size=2, stride=2),
++                nn.ELU(inplace=True),
++                Conv3x3(16, num_output_channels))
++        self.decoder = nn.ModuleList(list(self.convs.values()))
++        self.apply(self._init_weights)
++
++    def forward(self, input_features):
++        stem, input_features = input_features[0], input_features[1:]
++        self.outputs = {}
++        x = input_features[-1]
++        for i in range(2, -1, -1):
++            x = self.convs[("upconv", i, 0)](x)
++            x = [upsample(x)]
++            if self.use_skips and i > 0:
++                x += [input_features[i - 1]]
++            if i == 0:
++                x += [stem]
++            x = torch.cat(x, 1)
++            x = self.convs[("upconv", i, 1)](x)
++            if i in self.scales:
++                if i == 0:
++                    f = self.convs[("dispconv", 0)](x)  # learned 2x upsampling to full resolution
++                else:
++                    f = upsample(self.convs[("dispconv", i)](x), mode='bilinear')
++                self.outputs[("disp", i)] = self.sigmoid(f)
++        return self.outputs
+diff --git a/networks/depth_encoder.py b/networks/depth_encoder.py
+index 1bd8029..362edbe 100644
+--- a/networks/depth_encoder.py
++++ b/networks/depth_encoder.py
+@@ -298,9 +298,12 @@ class LiteMono(nn.Module):
+     def __init__(self, in_chans=3, model='lite-mono', height=192, width=640,
+                  global_block=[1, 1, 1], global_block_type=['LGFI', 'LGFI', 'LGFI'],
+                  drop_path_rate=0.2, layer_scale_init_value=1e-6, expan_ratio=6,
+-                 heads=[8, 8, 8], use_pos_embd_xca=[True, False, False], **kwargs):
++                 heads=[8, 8, 8], use_pos_embd_xca=[True, False, False], return_stem=False, **kwargs):
+ 
+         super().__init__()
++        # local (hires_decoder): also return the 1/2-resolution stem1 feature, which the original
++        # decoder never sees. Weights are unchanged, so pretrained checkpoints load as before.
++        self.return_stem = return_stem
+ 
+         if model == 'lite-mono':
+             self.num_ch_enc = np.array([48, 80, 128])
+@@ -402,7 +405,7 @@ class LiteMono(nn.Module):
+             nn.init.constant_(m.weight, 1)
+             nn.init.constant_(m.bias, 0)
+ 
+-    def forward_features(self, x):
++    def forward_features(self, x, with_stem=False):
+         features = []
+         x = (x - 0.45) / 0.225
+ 
+@@ -412,6 +415,7 @@ class LiteMono(nn.Module):
+ 
+         tmp_x = []
+         x = self.downsample_layers[0](x)
++        stem_half = x  # 1/2 resolution, dims[0] channels
+         x = self.stem2(torch.cat((x, x_down[0]), dim=1))
+         tmp_x.append(x)
+ 
+@@ -434,9 +438,14 @@ class LiteMono(nn.Module):
+ 
+             features.append(x)
+ 
++        if with_stem:
++            return features, stem_half
+         return features
+ 
+     def forward(self, x):
++        if self.return_stem:
++            feats, stem_half = self.forward_features(x, with_stem=True)
++            return [stem_half] + feats
+         x = self.forward_features(x)
+ 
+         return x
 diff --git a/networks/resnet_encoder.py b/networks/resnet_encoder.py
 index 387efd4..3daa131 100644
 --- a/networks/resnet_encoder.py
@@ -138,11 +263,43 @@ index 387efd4..3daa131 100644
  
          if num_layers > 34:
              self.num_ch_enc[1:] *= 4
+diff --git a/options.py b/options.py
+index 19de983..71fae1d 100644
+--- a/options.py
++++ b/options.py
+@@ -39,6 +39,9 @@ class LiteMonoOptions:
+                                  type=float,
+                                  help="weight decay in AdamW",
+                                  default=1e-2)
++        self.parser.add_argument("--hires_decoder",
++                                 help="local: 1/2-res stem skip + learned 2x upsampling in the depth decoder",
++                                 action="store_true")
+         self.parser.add_argument("--drop_path",
+                                  type=float,
+                                  help="drop path rate",
 diff --git a/trainer.py b/trainer.py
-index 70eda1e..fc06737 100644
+index 70eda1e..375c4f8 100644
 --- a/trainer.py
 +++ b/trainer.py
-@@ -361,10 +361,10 @@ class Trainer:
+@@ -57,13 +57,14 @@ class Trainer:
+ 
+         self.models["encoder"] = networks.LiteMono(model=self.opt.model,
+                                                    drop_path_rate=self.opt.drop_path,
+-                                                   width=self.opt.width, height=self.opt.height)
++                                                   width=self.opt.width, height=self.opt.height,
++                                                   return_stem=self.opt.hires_decoder)
+ 
+         self.models["encoder"].to(self.device)
+         self.parameters_to_train += list(self.models["encoder"].parameters())
+ 
+-        self.models["depth"] = networks.DepthDecoder(self.models["encoder"].num_ch_enc,
+-                                                     self.opt.scales)
++        Decoder = networks.HiResDepthDecoder if self.opt.hires_decoder else networks.DepthDecoder
++        self.models["depth"] = Decoder(self.models["encoder"].num_ch_enc, self.opt.scales)
+         self.models["depth"].to(self.device)
+         self.parameters_to_train += list(self.models["depth"].parameters())
+ 
+@@ -361,10 +362,10 @@ class Trainer:
          """
          self.set_eval()
          try:
@@ -155,7 +312,7 @@ index 70eda1e..fc06737 100644
  
          with torch.no_grad():
              outputs, losses = self.process_batch(inputs)
-@@ -657,11 +657,19 @@ class Trainer:
+@@ -657,11 +658,19 @@ class Trainer:
          self.opt.mypretrain = os.path.expanduser(self.opt.mypretrain)
          path = self.opt.mypretrain
          model_dict = self.models["encoder"].state_dict()

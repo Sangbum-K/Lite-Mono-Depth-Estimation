@@ -298,9 +298,12 @@ class LiteMono(nn.Module):
     def __init__(self, in_chans=3, model='lite-mono', height=192, width=640,
                  global_block=[1, 1, 1], global_block_type=['LGFI', 'LGFI', 'LGFI'],
                  drop_path_rate=0.2, layer_scale_init_value=1e-6, expan_ratio=6,
-                 heads=[8, 8, 8], use_pos_embd_xca=[True, False, False], **kwargs):
+                 heads=[8, 8, 8], use_pos_embd_xca=[True, False, False], return_stem=False, **kwargs):
 
         super().__init__()
+        # local (hires_decoder): also return the 1/2-resolution stem1 feature, which the original
+        # decoder never sees. Weights are unchanged, so pretrained checkpoints load as before.
+        self.return_stem = return_stem
 
         if model == 'lite-mono':
             self.num_ch_enc = np.array([48, 80, 128])
@@ -402,7 +405,7 @@ class LiteMono(nn.Module):
             nn.init.constant_(m.weight, 1)
             nn.init.constant_(m.bias, 0)
 
-    def forward_features(self, x):
+    def forward_features(self, x, with_stem=False):
         features = []
         x = (x - 0.45) / 0.225
 
@@ -412,6 +415,7 @@ class LiteMono(nn.Module):
 
         tmp_x = []
         x = self.downsample_layers[0](x)
+        stem_half = x  # 1/2 resolution, dims[0] channels
         x = self.stem2(torch.cat((x, x_down[0]), dim=1))
         tmp_x.append(x)
 
@@ -434,9 +438,14 @@ class LiteMono(nn.Module):
 
             features.append(x)
 
+        if with_stem:
+            return features, stem_half
         return features
 
     def forward(self, x):
+        if self.return_stem:
+            feats, stem_half = self.forward_features(x, with_stem=True)
+            return [stem_half] + feats
         x = self.forward_features(x)
 
         return x
