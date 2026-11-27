@@ -1,0 +1,179 @@
+diff --git a/datasets/mono_dataset.py b/datasets/mono_dataset.py
+index 7dcd36a..c5263a6 100644
+--- a/datasets/mono_dataset.py
++++ b/datasets/mono_dataset.py
+@@ -46,7 +46,7 @@ class MonoDataset(data.Dataset):
+         self.height = height
+         self.width = width
+         self.num_scales = num_scales
+-        self.interp = Image.ANTIALIAS
++        self.interp = transforms.InterpolationMode.LANCZOS  # [env-compat] Pillow>=10 removed ANTIALIAS (same filter)
+ 
+         self.frame_idxs = frame_idxs
+ 
+diff --git a/evaluate_depth.py b/evaluate_depth.py
+index f6f00c9..ece07e3 100644
+--- a/evaluate_depth.py
++++ b/evaluate_depth.py
+@@ -95,7 +95,8 @@ def evaluate(opt):
+ 
+         dataset = datasets.KITTIRAWDataset(opt.data_path, filenames,
+                                            encoder_dict['height'], encoder_dict['width'],
+-                                           [0], 4, is_train=False)
++                                           [0], 4, is_train=False,
++                                           img_ext='.png' if opt.png else '.jpg')  # local: upstream ignored --png in eval
+         dataloader = DataLoader(dataset, 16, shuffle=False, num_workers=opt.num_workers,
+                                 pin_memory=True, drop_last=False)
+ 
+diff --git a/export_gt_depth.py b/export_gt_depth.py
+new file mode 100644
+index 0000000..a0c950f
+--- /dev/null
++++ b/export_gt_depth.py
+@@ -0,0 +1,69 @@
++# Copyright Niantic 2019. Patent Pending. All rights reserved.
++#
++# This software is licensed under the terms of the Monodepth2 licence
++# which allows for non-commercial use only, the full terms of which are made
++# available in the LICENSE file.
++
++from __future__ import absolute_import, division, print_function
++
++import os
++
++import argparse
++import numpy as np
++import PIL.Image as pil
++
++from utils import readlines
++from kitti_utils import generate_depth_map
++
++
++def export_gt_depths_kitti():
++
++    parser = argparse.ArgumentParser(description='export_gt_depth')
++
++    parser.add_argument('--data_path',
++                        type=str,
++                        help='path to the root of the KITTI data',
++                        required=True)
++    parser.add_argument('--split',
++                        type=str,
++                        help='which split to export gt from',
++                        required=True,
++                        choices=["eigen", "eigen_benchmark"])
++    opt = parser.parse_args()
++
++    split_folder = os.path.join(os.path.dirname(__file__), "splits", opt.split)
++    lines = readlines(os.path.join(split_folder, "test_files.txt"))
++
++    print("Exporting ground truth depths for {}".format(opt.split))
++
++    gt_depths = []
++    for line in lines:
++
++        folder, frame_id, _ = line.split()
++        frame_id = int(frame_id)
++
++        if opt.split == "eigen":
++            calib_dir = os.path.join(opt.data_path, folder.split("/")[0])
++            velo_filename = os.path.join(opt.data_path, folder,
++                                         "velodyne_points/data", "{:010d}.bin".format(frame_id))
++            gt_depth = generate_depth_map(calib_dir, velo_filename, 2, True)
++        elif opt.split == "eigen_benchmark":
++            gt_depth_path = os.path.join(opt.data_path, folder, "proj_depth",
++                                         "groundtruth", "image_02", "{:010d}.png".format(frame_id))
++            gt_depth = np.array(pil.open(gt_depth_path)).astype(np.float32) / 256
++
++        gt_depths.append(gt_depth.astype(np.float32))
++
++    output_path = os.path.join(split_folder, "gt_depths.npz")
++
++    print("Saving to {}".format(opt.split))
++
++    # compat: maps differ in size per date; NumPy >= 1.24 no longer builds this ragged object array implicitly
++    data = np.empty(len(gt_depths), dtype=object)
++    for i, gt_depth in enumerate(gt_depths):
++        data[i] = gt_depth
++    np.savez_compressed(output_path, data=data)
++
++
++if __name__ == "__main__":
++    export_gt_depths_kitti()
+diff --git a/kitti_utils.py b/kitti_utils.py
+index 85c5d7e..b2cdc90 100644
+--- a/kitti_utils.py
++++ b/kitti_utils.py
+@@ -82,7 +82,7 @@ def generate_depth_map(calib_dir, velo_filename, cam=2, vel_depth=False):
+ 
+     # project to image
+     depth = np.zeros((im_shape[:2]))
+-    depth[velo_pts_im[:, 1].astype(np.int), velo_pts_im[:, 0].astype(np.int)] = velo_pts_im[:, 2]
++    depth[velo_pts_im[:, 1].astype(int), velo_pts_im[:, 0].astype(int)] = velo_pts_im[:, 2]
+ 
+     # find the duplicate points and choose the closest depth
+     inds = sub2ind(depth.shape, velo_pts_im[:, 1], velo_pts_im[:, 0])
+diff --git a/networks/resnet_encoder.py b/networks/resnet_encoder.py
+index 387efd4..3daa131 100644
+--- a/networks/resnet_encoder.py
++++ b/networks/resnet_encoder.py
+@@ -45,7 +45,9 @@ def resnet_multiimage_input(num_layers, pretrained=False, num_input_images=1):
+     model = ResNetMultiImageInput(block_type, blocks, num_input_images=num_input_images)
+ 
+     if pretrained:
+-        loaded = model_zoo.load_url(models.resnet.model_urls['resnet{}'.format(num_layers)])
++        # [env-compat] torchvision>=0.13 removed models.resnet.model_urls; same ImageNet V1 weights.
++        weights_enum = {18: models.ResNet18_Weights, 50: models.ResNet50_Weights}[num_layers]
++        loaded = model_zoo.load_url(weights_enum.IMAGENET1K_V1.url)
+         loaded['conv1.weight'] = torch.cat(
+             [loaded['conv1.weight']] * num_input_images, 1) / num_input_images
+         model.load_state_dict(loaded)
+@@ -75,7 +77,8 @@ class ResnetEncoder(nn.Module):
+         if num_input_images > 1:
+             self.encoder = resnet_multiimage_input(num_layers, pretrained, num_input_images)
+         else:
+-            self.encoder = resnets[num_layers](pretrained)
++            # [env-compat] torchvision>=0.13 takes weights= instead of a positional pretrained flag.
++            self.encoder = resnets[num_layers](weights="IMAGENET1K_V1" if pretrained else None)
+ 
+         if num_layers > 34:
+             self.num_ch_enc[1:] *= 4
+diff --git a/trainer.py b/trainer.py
+index 70eda1e..fc06737 100644
+--- a/trainer.py
++++ b/trainer.py
+@@ -361,10 +361,10 @@ class Trainer:
+         """
+         self.set_eval()
+         try:
+-            inputs = self.val_iter.next()
++            inputs = next(self.val_iter)
+         except StopIteration:
+             self.val_iter = iter(self.val_loader)
+-            inputs = self.val_iter.next()
++            inputs = next(self.val_iter)
+ 
+         with torch.no_grad():
+             outputs, losses = self.process_batch(inputs)
+@@ -657,11 +657,19 @@ class Trainer:
+         self.opt.mypretrain = os.path.expanduser(self.opt.mypretrain)
+         path = self.opt.mypretrain
+         model_dict = self.models["encoder"].state_dict()
+-        pretrained_dict = torch.load(path)['model']
++        # [env-compat] torch>=2.6 defaults to weights_only=True; allowlist only the
++        # non-tensor types stored in the official ImageNet checkpoint's metadata.
++        import argparse
++        import numpy as np
++        from numpy.core.multiarray import scalar as np_scalar
++        safe = [np_scalar, np.dtype, type(np.dtype(np.float64)), argparse.Namespace]
++        with torch.serialization.safe_globals(safe):
++            pretrained_dict = torch.load(path, map_location="cpu")['model']
+         pretrained_dict = {k: v for k, v in pretrained_dict.items() if (k in model_dict and not k.startswith('norm'))}
+         model_dict.update(pretrained_dict)
+         self.models["encoder"].load_state_dict(model_dict)
+-        print('mypretrain loaded.')
++        print('mypretrain loaded: {}/{} encoder tensors from {}'.format(
++            len(pretrained_dict), len(model_dict), path))
+ 
+     def load_model(self):
+         """Load model(s) from disk

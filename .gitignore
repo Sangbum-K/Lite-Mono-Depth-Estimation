@@ -13,7 +13,7 @@ data/processed/
 data/external/
 data/cache/
 data/kitti_data/
-datasets/
+/datasets/
 kitti_data/
 weights/
 checkpoints/
@@ -35,3 +35,6 @@ tensorboard/
 # Local machine paths and secrets
 .env
 configs/paths.env
+
+# External reference repos (read-only, not part of this project)
+/third_party/
