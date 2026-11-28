@@ -42,6 +42,38 @@ class LiteMonoOptions:
         self.parser.add_argument("--hires_decoder",
                                  help="local: 1/2-res stem skip + learned 2x upsampling in the depth decoder",
                                  action="store_true")
+        self.parser.add_argument("--val_num_workers",
+                                 type=int,
+                                 help="local: data loader workers for the validation loader; -1 = same as --num_workers",
+                                 default=-1)
+        self.parser.add_argument("--hires_stem_ch",
+                                 type=int,
+                                 help="local: with --hires_decoder, compress the 1/2-res stem skip to this many "
+                                      "channels with a 1x1 conv (A-lite); 0 = use all 48 channels",
+                                 default=0)
+        self.parser.add_argument("--hires_upsample",
+                                 type=str,
+                                 help="local: full-resolution head of --hires_decoder: deconv (transposed conv) "
+                                      "or subpixel (conv + PixelShuffle, cheaper)",
+                                 choices=["deconv", "subpixel"],
+                                 default="deconv")
+        self.parser.add_argument("--dpt_decoder",
+                                 help="local: Depth Pro 2 / DPT decoder (residual refinement + learned 2x upsampling "
+                                      "at every stage) on the unchanged encoder",
+                                 action="store_true")
+        self.parser.add_argument("--dpt_dim",
+                                 type=int,
+                                 help="local: channels of every --dpt_decoder stage (Depth Pro 2-S: 64)",
+                                 default=64)
+        self.parser.add_argument("--dpt_head_ch",
+                                 type=int,
+                                 help="local: hidden channels of the --dpt_decoder full-resolution head (Depth Pro 2: 32)",
+                                 default=32)
+        self.parser.add_argument("--smooth_edge_gain",
+                                 type=float,
+                                 help="local: edge-aware smoothness weight is exp(-gain * |grad I|); "
+                                      "1.0 = original Monodepth2/Lite-Mono, > 1 relaxes smoothness faster at image edges",
+                                 default=1.0)
         self.parser.add_argument("--drop_path",
                                  type=float,
                                  help="drop path rate",

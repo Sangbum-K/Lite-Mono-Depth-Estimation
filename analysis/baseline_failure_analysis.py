@@ -63,7 +63,8 @@ def compute_errors(gt, pred):
     return abs_rel, sq_rel, rmse, rmse_log, a1, a2, a3
 
 
-def predict_disps(weights, data_path, num_workers, hires_decoder=False):
+def predict_disps(weights, data_path, num_workers, hires_decoder=False, hires_stem_ch=0, hires_upsample="deconv",
+                  dpt_decoder=False, dpt_dim=64, dpt_head_ch=32):
     import torch
     from torch.utils.data import DataLoader
     import datasets
@@ -80,12 +81,17 @@ def predict_disps(weights, data_path, num_workers, hires_decoder=False):
                         pin_memory=True, drop_last=False)
     encoder = networks.LiteMono(model="lite-mono", height=enc_dict["height"], width=enc_dict["width"],
                                 return_stem=hires_decoder)
-    Decoder = networks.HiResDepthDecoder if hires_decoder else networks.DepthDecoder
-    decoder = Decoder(encoder.num_ch_enc, scales=range(3))
+    if dpt_decoder:
+        decoder = networks.DPTDepthDecoder(encoder.num_ch_enc, scales=range(3), dim=dpt_dim, head_ch=dpt_head_ch)
+    elif hires_decoder:
+        decoder = networks.HiResDepthDecoder(encoder.num_ch_enc, scales=range(3), stem_ch=hires_stem_ch,
+                                                 upsample_head=hires_upsample)
+    else:
+        decoder = networks.DepthDecoder(encoder.num_ch_enc, scales=range(3))
     encoder.load_state_dict({k: v for k, v in enc_dict.items() if k in encoder.state_dict()})
     decoder.load_state_dict({k: v for k, v in dec_dict.items() if k in decoder.state_dict()})
     missing = [k for k in decoder.state_dict() if k not in dec_dict or dec_dict[k].shape != decoder.state_dict()[k].shape]
-    assert not missing, "decoder checkpoint does not match (use --hires_decoder?): {}".format(missing[:3])
+    assert not missing, "decoder checkpoint does not match (use --hires_decoder / --hires_stem_ch?): {}".format(missing[:3])
     encoder.cuda().eval()
     decoder.cuda().eval()
     out = []
@@ -221,6 +227,11 @@ def main():
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--reuse_disps", action="store_true")
     p.add_argument("--hires_decoder", action="store_true", help="checkpoint trained with --hires_decoder")
+    p.add_argument("--hires_stem_ch", type=int, default=0, help="checkpoint trained with --hires_stem_ch")
+    p.add_argument("--hires_upsample", default="deconv", choices=["deconv", "subpixel"], help="checkpoint trained with --hires_upsample")
+    p.add_argument("--dpt_decoder", action="store_true", help="checkpoint trained with --dpt_decoder")
+    p.add_argument("--dpt_dim", type=int, default=64, help="checkpoint trained with --dpt_dim")
+    p.add_argument("--dpt_head_ch", type=int, default=32, help="checkpoint trained with --dpt_head_ch")
     p.add_argument("--no_figs", action="store_true")
     opt = p.parse_args()
     os.makedirs(opt.out, exist_ok=True)
@@ -230,7 +241,8 @@ def main():
     if opt.reuse_disps and os.path.exists(disp_path):
         disps = np.load(disp_path)
     else:
-        disps = predict_disps(opt.weights, opt.data_path, opt.num_workers, opt.hires_decoder)
+        disps = predict_disps(opt.weights, opt.data_path, opt.num_workers, opt.hires_decoder, opt.hires_stem_ch, opt.hires_upsample,
+                               opt.dpt_decoder, opt.dpt_dim, opt.dpt_head_ch)
         np.save(disp_path, disps)
     gts = np.load(os.path.join(LITEMONO, "splits", "eigen", "gt_depths.npz"),
                   fix_imports=True, encoding="latin1", allow_pickle=True)["data"]

@@ -1,5 +1,7 @@
 # Experiments
 
+전체 실험의 흐름(왜 했는지, 사전 가설, 확인한 것)은 `EXPERIMENT_LOG.md`에 모은다.
+
 run마다 `run_template.md`를 복사해 `YYYYMMDD_method_seed.md`로 저장한다. 실행 전에는 가설·설정을, 종료 후에는 결과·자원 사용량·실패를 채운다.
 
 Git에 남길 것:

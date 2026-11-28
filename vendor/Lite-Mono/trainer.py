@@ -63,8 +63,18 @@ class Trainer:
         self.models["encoder"].to(self.device)
         self.parameters_to_train += list(self.models["encoder"].parameters())
 
-        Decoder = networks.HiResDepthDecoder if self.opt.hires_decoder else networks.DepthDecoder
-        self.models["depth"] = Decoder(self.models["encoder"].num_ch_enc, self.opt.scales)
+        assert self.opt.hires_decoder or (self.opt.hires_stem_ch == 0 and self.opt.hires_upsample == "deconv"), \
+            "--hires_stem_ch / --hires_upsample need --hires_decoder"
+        assert not (self.opt.dpt_decoder and self.opt.hires_decoder), "--dpt_decoder and --hires_decoder exclude each other"
+        if self.opt.dpt_decoder:
+            self.models["depth"] = networks.DPTDepthDecoder(self.models["encoder"].num_ch_enc, self.opt.scales,
+                                                            dim=self.opt.dpt_dim, head_ch=self.opt.dpt_head_ch)
+        elif self.opt.hires_decoder:
+            self.models["depth"] = networks.HiResDepthDecoder(self.models["encoder"].num_ch_enc, self.opt.scales,
+                                                              stem_ch=self.opt.hires_stem_ch,
+                                                              upsample_head=self.opt.hires_upsample)
+        else:
+            self.models["depth"] = networks.DepthDecoder(self.models["encoder"].num_ch_enc, self.opt.scales)
         self.models["depth"].to(self.device)
         self.parameters_to_train += list(self.models["depth"].parameters())
 
@@ -164,9 +174,13 @@ class Trainer:
         val_dataset = self.dataset(
             self.opt.data_path, val_filenames, self.opt.height, self.opt.width,
             self.opt.frame_ids, 4, is_train=False, img_ext=img_ext)
+        # local: --val_num_workers (default = num_workers). The val loader is only sampled once per log
+        # step but its workers keep 2 batches each pre-loaded for the whole run; fewer workers save RAM.
+        # Sample order comes from the main-process sampler, so the worker count does not change training.
+        val_workers = self.opt.num_workers if self.opt.val_num_workers < 0 else self.opt.val_num_workers
         self.val_loader = DataLoader(
             val_dataset, self.opt.batch_size, True,
-            num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
+            num_workers=val_workers, pin_memory=True, drop_last=True)
         self.val_iter = iter(self.val_loader)
 
         self.writers = {}
@@ -526,7 +540,7 @@ class Trainer:
 
             mean_disp = disp.mean(2, True).mean(3, True)
             norm_disp = disp / (mean_disp + 1e-7)
-            smooth_loss = get_smooth_loss(norm_disp, color)
+            smooth_loss = get_smooth_loss(norm_disp, color, self.opt.smooth_edge_gain)
 
             loss += self.opt.disparity_smoothness * smooth_loss / (2 ** scale)
             total_loss += loss
