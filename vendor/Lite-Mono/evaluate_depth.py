@@ -103,8 +103,14 @@ def evaluate(opt):
         encoder = networks.LiteMono(model=opt.model, return_stem=opt.hires_decoder,
                                     height=encoder_dict['height'],
                                     width=encoder_dict['width'])
-        Decoder = networks.HiResDepthDecoder if opt.hires_decoder else networks.DepthDecoder
-        depth_decoder = Decoder(encoder.num_ch_enc, scales=range(3))
+        if opt.dpt_decoder:
+            depth_decoder = networks.DPTDepthDecoder(encoder.num_ch_enc, scales=range(3), dim=opt.dpt_dim,
+                                                     head_ch=opt.dpt_head_ch)
+        elif opt.hires_decoder:
+            depth_decoder = networks.HiResDepthDecoder(encoder.num_ch_enc, scales=range(3), stem_ch=opt.hires_stem_ch,
+                                                        upsample_head=opt.hires_upsample)
+        else:
+            depth_decoder = networks.DepthDecoder(encoder.num_ch_enc, scales=range(3))
         model_dict = encoder.state_dict()
         depth_model_dict = depth_decoder.state_dict()
         encoder.load_state_dict({k: v for k, v in encoder_dict.items() if k in model_dict})

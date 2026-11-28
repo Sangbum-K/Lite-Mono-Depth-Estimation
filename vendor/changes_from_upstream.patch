@@ -12,10 +12,10 @@ index 7dcd36a..c5263a6 100644
          self.frame_idxs = frame_idxs
  
 diff --git a/evaluate_depth.py b/evaluate_depth.py
-index f6f00c9..6785666 100644
+index f6f00c9..090c6cd 100644
 --- a/evaluate_depth.py
 +++ b/evaluate_depth.py
-@@ -95,14 +95,16 @@ def evaluate(opt):
+@@ -95,14 +95,22 @@ def evaluate(opt):
  
          dataset = datasets.KITTIRAWDataset(opt.data_path, filenames,
                                             encoder_dict['height'], encoder_dict['width'],
@@ -30,86 +30,17 @@ index f6f00c9..6785666 100644
                                      height=encoder_dict['height'],
                                      width=encoder_dict['width'])
 -        depth_decoder = networks.DepthDecoder(encoder.num_ch_enc, scales=range(3))
-+        Decoder = networks.HiResDepthDecoder if opt.hires_decoder else networks.DepthDecoder
-+        depth_decoder = Decoder(encoder.num_ch_enc, scales=range(3))
++        if opt.dpt_decoder:
++            depth_decoder = networks.DPTDepthDecoder(encoder.num_ch_enc, scales=range(3), dim=opt.dpt_dim,
++                                                     head_ch=opt.dpt_head_ch)
++        elif opt.hires_decoder:
++            depth_decoder = networks.HiResDepthDecoder(encoder.num_ch_enc, scales=range(3), stem_ch=opt.hires_stem_ch,
++                                                        upsample_head=opt.hires_upsample)
++        else:
++            depth_decoder = networks.DepthDecoder(encoder.num_ch_enc, scales=range(3))
          model_dict = encoder.state_dict()
          depth_model_dict = depth_decoder.state_dict()
          encoder.load_state_dict({k: v for k, v in encoder_dict.items() if k in model_dict})
-diff --git a/export_gt_depth.py b/export_gt_depth.py
-new file mode 100644
-index 0000000..a0c950f
---- /dev/null
-+++ b/export_gt_depth.py
-@@ -0,0 +1,69 @@
-+# Copyright Niantic 2019. Patent Pending. All rights reserved.
-+#
-+# This software is licensed under the terms of the Monodepth2 licence
-+# which allows for non-commercial use only, the full terms of which are made
-+# available in the LICENSE file.
-+
-+from __future__ import absolute_import, division, print_function
-+
-+import os
-+
-+import argparse
-+import numpy as np
-+import PIL.Image as pil
-+
-+from utils import readlines
-+from kitti_utils import generate_depth_map
-+
-+
-+def export_gt_depths_kitti():
-+
-+    parser = argparse.ArgumentParser(description='export_gt_depth')
-+
-+    parser.add_argument('--data_path',
-+                        type=str,
-+                        help='path to the root of the KITTI data',
-+                        required=True)
-+    parser.add_argument('--split',
-+                        type=str,
-+                        help='which split to export gt from',
-+                        required=True,
-+                        choices=["eigen", "eigen_benchmark"])
-+    opt = parser.parse_args()
-+
-+    split_folder = os.path.join(os.path.dirname(__file__), "splits", opt.split)
-+    lines = readlines(os.path.join(split_folder, "test_files.txt"))
-+
-+    print("Exporting ground truth depths for {}".format(opt.split))
-+
-+    gt_depths = []
-+    for line in lines:
-+
-+        folder, frame_id, _ = line.split()
-+        frame_id = int(frame_id)
-+
-+        if opt.split == "eigen":
-+            calib_dir = os.path.join(opt.data_path, folder.split("/")[0])
-+            velo_filename = os.path.join(opt.data_path, folder,
-+                                         "velodyne_points/data", "{:010d}.bin".format(frame_id))
-+            gt_depth = generate_depth_map(calib_dir, velo_filename, 2, True)
-+        elif opt.split == "eigen_benchmark":
-+            gt_depth_path = os.path.join(opt.data_path, folder, "proj_depth",
-+                                         "groundtruth", "image_02", "{:010d}.png".format(frame_id))
-+            gt_depth = np.array(pil.open(gt_depth_path)).astype(np.float32) / 256
-+
-+        gt_depths.append(gt_depth.astype(np.float32))
-+
-+    output_path = os.path.join(split_folder, "gt_depths.npz")
-+
-+    print("Saving to {}".format(opt.split))
-+
-+    # compat: maps differ in size per date; NumPy >= 1.24 no longer builds this ragged object array implicitly
-+    data = np.empty(len(gt_depths), dtype=object)
-+    for i, gt_depth in enumerate(gt_depths):
-+        data[i] = gt_depth
-+    np.savez_compressed(output_path, data=data)
-+
-+
-+if __name__ == "__main__":
-+    export_gt_depths_kitti()
 diff --git a/kitti_utils.py b/kitti_utils.py
 index 85c5d7e..b2cdc90 100644
 --- a/kitti_utils.py
@@ -123,21 +54,48 @@ index 85c5d7e..b2cdc90 100644
  
      # find the duplicate points and choose the closest depth
      inds = sub2ind(depth.shape, velo_pts_im[:, 1], velo_pts_im[:, 0])
+diff --git a/layers.py b/layers.py
+index 975c578..c86b20d 100644
+--- a/layers.py
++++ b/layers.py
+@@ -228,9 +228,10 @@ def upsample(x, scale_factor=2, mode="bilinear"):
+     return F.interpolate(x, scale_factor=scale_factor, mode=mode)
+ 
+ 
+-def get_smooth_loss(disp, img):
++def get_smooth_loss(disp, img, edge_gain=1.0):
+     """Computes the smoothness loss for a disparity image
+     The color image is used for edge-aware smoothness
++    local: edge_gain scales the image gradient inside exp(); 1.0 = upstream behaviour (option --smooth_edge_gain)
+     """
+     grad_disp_x = torch.abs(disp[:, :, :, :-1] - disp[:, :, :, 1:])
+     grad_disp_y = torch.abs(disp[:, :, :-1, :] - disp[:, :, 1:, :])
+@@ -238,8 +239,8 @@ def get_smooth_loss(disp, img):
+     grad_img_x = torch.mean(torch.abs(img[:, :, :, :-1] - img[:, :, :, 1:]), 1, keepdim=True)
+     grad_img_y = torch.mean(torch.abs(img[:, :, :-1, :] - img[:, :, 1:, :]), 1, keepdim=True)
+ 
+-    grad_disp_x *= torch.exp(-grad_img_x)
+-    grad_disp_y *= torch.exp(-grad_img_y)
++    grad_disp_x *= torch.exp(-edge_gain * grad_img_x)
++    grad_disp_y *= torch.exp(-edge_gain * grad_img_y)
+ 
+     return grad_disp_x.mean() + grad_disp_y.mean()
+ 
 diff --git a/networks/__init__.py b/networks/__init__.py
-index 98f5382..acfc2f4 100644
+index 98f5382..5a0937f 100644
 --- a/networks/__init__.py
 +++ b/networks/__init__.py
 @@ -1,4 +1,4 @@
  from .resnet_encoder import ResnetEncoder
  from .pose_decoder import PoseDecoder
 -from .depth_decoder import DepthDecoder
-+from .depth_decoder import DepthDecoder, HiResDepthDecoder
++from .depth_decoder import DepthDecoder, HiResDepthDecoder, DPTDepthDecoder
  from .depth_encoder import LiteMono
 diff --git a/networks/depth_decoder.py b/networks/depth_decoder.py
-index ec2b29f..23f8ee5 100644
+index ec2b29f..ad47329 100644
 --- a/networks/depth_decoder.py
 +++ b/networks/depth_decoder.py
-@@ -63,3 +63,50 @@ class DepthDecoder(nn.Module):
+@@ -63,3 +63,158 @@ class DepthDecoder(nn.Module):
  
          return self.outputs
  
@@ -154,22 +112,40 @@ index ec2b29f..23f8ee5 100644
 +    Idea adapted from the learned (transposed-conv) upsampling of DPT / Depth Pro / Depth Pro 2
 +    and the high-resolution skip fusion of HR-Depth (Lyu et al., AAAI 2021).
 +    Input: [stem_half, f_1/4, f_1/8, f_1/16] from LiteMono(return_stem=True).
++    stem_ch > 0 (option --hires_stem_ch, "A-lite"): the 48-channel stem feature is first compressed
++    to stem_ch channels by a 1x1 conv + ELU, which removes most of the extra MACs of the 3x3 fusion
++    conv at 1/2 resolution. stem_ch = 0 keeps the full 48 channels (original --hires_decoder).
++    upsample_head (option --hires_upsample): "deconv" = ConvTranspose2d(c0,16,2,2)+ELU+Conv3x3 at full
++    resolution (original --hires_decoder); "subpixel" = Conv3x3(c0, 4) at 1/2 resolution + PixelShuffle(2),
++    i.e. the sub-pixel convolution of SuperDepth (Pillai et al., ICRA 2019), much cheaper in MACs.
 +    """
 +
-+    def __init__(self, num_ch_enc, scales=range(4), num_output_channels=1, use_skips=True, num_ch_stem=48):
++    def __init__(self, num_ch_enc, scales=range(4), num_output_channels=1, use_skips=True, num_ch_stem=48,
++                 stem_ch=0, upsample_head="deconv"):
 +        super().__init__(num_ch_enc, scales, num_output_channels, use_skips)
 +        c0 = int(self.num_ch_dec[0])
-+        self.convs[("upconv", 0, 1)] = ConvBlock(c0 + num_ch_stem, c0)
-+        if 0 in self.scales:
++        self.stem_ch = stem_ch
++        skip_ch = stem_ch if stem_ch > 0 else num_ch_stem
++        self.convs[("upconv", 0, 1)] = ConvBlock(c0 + skip_ch, c0)
++        assert upsample_head in ("deconv", "subpixel"), upsample_head
++        if 0 in self.scales and upsample_head == "subpixel":
++            self.convs[("dispconv", 0)] = nn.Sequential(
++                Conv3x3(c0, 4 * num_output_channels),
++                nn.PixelShuffle(2))
++        elif 0 in self.scales:
 +            self.convs[("dispconv", 0)] = nn.Sequential(
 +                nn.ConvTranspose2d(c0, 16, kernel_size=2, stride=2),
 +                nn.ELU(inplace=True),
 +                Conv3x3(16, num_output_channels))
++        if stem_ch > 0:
++            self.convs[("stemproj",)] = nn.Sequential(nn.Conv2d(num_ch_stem, stem_ch, 1), nn.ELU(inplace=True))
 +        self.decoder = nn.ModuleList(list(self.convs.values()))
 +        self.apply(self._init_weights)
 +
 +    def forward(self, input_features):
 +        stem, input_features = input_features[0], input_features[1:]
++        if self.stem_ch > 0:
++            stem = self.convs[("stemproj",)](stem)
 +        self.outputs = {}
 +        x = input_features[-1]
 +        for i in range(2, -1, -1):
@@ -187,6 +163,96 @@ index ec2b29f..23f8ee5 100644
 +                else:
 +                    f = upsample(self.convs[("dispconv", i)](x), mode='bilinear')
 +                self.outputs[("disp", i)] = self.sigmoid(f)
++        return self.outputs
++
++
++class _Residual(nn.Module):
++    """ReLU-Conv3x3-ReLU-Conv3x3 residual unit (DPT / Depth Pro 2 FeatureFusionBlock2d)."""
++
++    def __init__(self, dim):
++        super().__init__()
++        self.body = nn.Sequential(nn.ReLU(), nn.Conv2d(dim, dim, 3, padding=1),
++                                  nn.ReLU(), nn.Conv2d(dim, dim, 3, padding=1))
++
++    def forward(self, x):
++        return x + self.body(x)
++
++
++class _Fusion(nn.Module):
++    """DPT feature fusion as in Depth Pro 2: add refined skip, refine, learned 2x upsampling, 1x1 conv."""
++
++    def __init__(self, dim, with_skip):
++        super().__init__()
++        self.resnet1 = _Residual(dim) if with_skip else None
++        self.resnet2 = _Residual(dim)
++        self.deconv = nn.ConvTranspose2d(dim, dim, kernel_size=2, stride=2, bias=False)
++        self.out_conv = nn.Conv2d(dim, dim, kernel_size=1)
++
++    def forward(self, x, skip=None):
++        if skip is not None:
++            x = x + self.resnet1(skip)
++        return self.out_conv(self.deconv(self.resnet2(x)))
++
++
++class DPTDepthDecoder(nn.Module):
++    """Local variant (option --dpt_decoder), not in the Lite-Mono paper.
++
++    Decoder structure of Depth Pro 2 (third_party/ml-depth-pro-2, network/decoder.py: DPTDecoder,
++    FeatureFusionBlock2d, create_inverse_depth_head), i.e. the DPT decoder (Ranftl et al., ICCV 2021),
++    on the unchanged Lite-Mono encoder (features at 1/4, 1/8, 1/16):
++      - every encoder level is projected to `dim` channels by a 3x3 conv;
++      - every stage refines with residual units and upsamples 2x with a learned transposed conv
++        (the original decoder upsamples every stage bilinearly);
++      - the full-resolution disparity comes from the Depth Pro 2 head: 3x3 conv at 1/2, learned 2x
++        transposed conv, 3x3 conv to head_ch, ReLU, 1x1 conv.
++    Kept from Lite-Mono so that training and evaluation are unchanged: sigmoid disparity output
++    (Depth Pro 2 uses ReLU on metric inverse depth) and the multi-scale outputs for the
++    self-supervised loss: ("disp", 2) at 1/4 and ("disp", 1) at 1/2 from a 3x3 conv on the stage
++    output, ("disp", 0) at full resolution from the head.
++    """
++
++    def __init__(self, num_ch_enc, scales=range(4), num_output_channels=1, dim=64, head_ch=32):
++        super().__init__()
++        self.scales = scales
++        self.num_ch_enc = num_ch_enc
++        self.dim = dim
++        self.convs = OrderedDict()
++        for i, c in enumerate(num_ch_enc):
++            self.convs[("proj", i)] = nn.Conv2d(int(c), dim, 3, padding=1, bias=False)
++        n = len(num_ch_enc)
++        for i in range(n):
++            self.convs[("fusion", i)] = _Fusion(dim, with_skip=i < n - 1)
++        # stage outputs: fusion 1 -> 1/4 (scale 2), fusion 0 -> 1/2 (scale 1)
++        for s in self.scales:
++            if s in (1, 2):
++                self.convs[("dispconv", s)] = Conv3x3(dim, num_output_channels)
++        self.convs[("head",)] = nn.Sequential(
++            nn.Conv2d(dim, dim // 2, 3, padding=1),
++            nn.ConvTranspose2d(dim // 2, dim // 2, kernel_size=2, stride=2),
++            nn.Conv2d(dim // 2, head_ch, 3, padding=1),
++            nn.ReLU(True),
++            nn.Conv2d(head_ch, num_output_channels, 1))
++        self.decoder = nn.ModuleList(list(self.convs.values()))
++        self.sigmoid = nn.Sigmoid()
++        self.apply(self._init_weights)
++
++    def _init_weights(self, m):
++        if isinstance(m, (nn.Conv2d, nn.Linear)):
++            trunc_normal_(m.weight, std=.02)
++            if m.bias is not None:
++                nn.init.constant_(m.bias, 0)
++
++    def forward(self, input_features):
++        self.outputs = {}
++        n = len(input_features)
++        x = self.convs[("fusion", n - 1)](self.convs[("proj", n - 1)](input_features[-1]))
++        for i in range(n - 2, -1, -1):
++            x = self.convs[("fusion", i)](x, self.convs[("proj", i)](input_features[i]))
++            s = i + 1  # fusion 1 output is 1/4 -> scale 2, fusion 0 output is 1/2 -> scale 1
++            if s in self.scales and ("dispconv", s) in self.convs:
++                self.outputs[("disp", s)] = self.sigmoid(self.convs[("dispconv", s)](x))
++        if 0 in self.scales:
++            self.outputs[("disp", 0)] = self.sigmoid(self.convs[("head",)](x))
 +        return self.outputs
 diff --git a/networks/depth_encoder.py b/networks/depth_encoder.py
 index 1bd8029..362edbe 100644
@@ -264,24 +330,56 @@ index 387efd4..3daa131 100644
          if num_layers > 34:
              self.num_ch_enc[1:] *= 4
 diff --git a/options.py b/options.py
-index 19de983..71fae1d 100644
+index 19de983..404ac0b 100644
 --- a/options.py
 +++ b/options.py
-@@ -39,6 +39,9 @@ class LiteMonoOptions:
+@@ -39,6 +39,41 @@ class LiteMonoOptions:
                                   type=float,
                                   help="weight decay in AdamW",
                                   default=1e-2)
 +        self.parser.add_argument("--hires_decoder",
 +                                 help="local: 1/2-res stem skip + learned 2x upsampling in the depth decoder",
 +                                 action="store_true")
++        self.parser.add_argument("--val_num_workers",
++                                 type=int,
++                                 help="local: data loader workers for the validation loader; -1 = same as --num_workers",
++                                 default=-1)
++        self.parser.add_argument("--hires_stem_ch",
++                                 type=int,
++                                 help="local: with --hires_decoder, compress the 1/2-res stem skip to this many "
++                                      "channels with a 1x1 conv (A-lite); 0 = use all 48 channels",
++                                 default=0)
++        self.parser.add_argument("--hires_upsample",
++                                 type=str,
++                                 help="local: full-resolution head of --hires_decoder: deconv (transposed conv) "
++                                      "or subpixel (conv + PixelShuffle, cheaper)",
++                                 choices=["deconv", "subpixel"],
++                                 default="deconv")
++        self.parser.add_argument("--dpt_decoder",
++                                 help="local: Depth Pro 2 / DPT decoder (residual refinement + learned 2x upsampling "
++                                      "at every stage) on the unchanged encoder",
++                                 action="store_true")
++        self.parser.add_argument("--dpt_dim",
++                                 type=int,
++                                 help="local: channels of every --dpt_decoder stage (Depth Pro 2-S: 64)",
++                                 default=64)
++        self.parser.add_argument("--dpt_head_ch",
++                                 type=int,
++                                 help="local: hidden channels of the --dpt_decoder full-resolution head (Depth Pro 2: 32)",
++                                 default=32)
++        self.parser.add_argument("--smooth_edge_gain",
++                                 type=float,
++                                 help="local: edge-aware smoothness weight is exp(-gain * |grad I|); "
++                                      "1.0 = original Monodepth2/Lite-Mono, > 1 relaxes smoothness faster at image edges",
++                                 default=1.0)
          self.parser.add_argument("--drop_path",
                                   type=float,
                                   help="drop path rate",
 diff --git a/trainer.py b/trainer.py
-index 70eda1e..375c4f8 100644
+index 70eda1e..e8897b2 100644
 --- a/trainer.py
 +++ b/trainer.py
-@@ -57,13 +57,14 @@ class Trainer:
+@@ -57,13 +57,24 @@ class Trainer:
  
          self.models["encoder"] = networks.LiteMono(model=self.opt.model,
                                                     drop_path_rate=self.opt.drop_path,
@@ -294,12 +392,37 @@ index 70eda1e..375c4f8 100644
  
 -        self.models["depth"] = networks.DepthDecoder(self.models["encoder"].num_ch_enc,
 -                                                     self.opt.scales)
-+        Decoder = networks.HiResDepthDecoder if self.opt.hires_decoder else networks.DepthDecoder
-+        self.models["depth"] = Decoder(self.models["encoder"].num_ch_enc, self.opt.scales)
++        assert self.opt.hires_decoder or (self.opt.hires_stem_ch == 0 and self.opt.hires_upsample == "deconv"), \
++            "--hires_stem_ch / --hires_upsample need --hires_decoder"
++        assert not (self.opt.dpt_decoder and self.opt.hires_decoder), "--dpt_decoder and --hires_decoder exclude each other"
++        if self.opt.dpt_decoder:
++            self.models["depth"] = networks.DPTDepthDecoder(self.models["encoder"].num_ch_enc, self.opt.scales,
++                                                            dim=self.opt.dpt_dim, head_ch=self.opt.dpt_head_ch)
++        elif self.opt.hires_decoder:
++            self.models["depth"] = networks.HiResDepthDecoder(self.models["encoder"].num_ch_enc, self.opt.scales,
++                                                              stem_ch=self.opt.hires_stem_ch,
++                                                              upsample_head=self.opt.hires_upsample)
++        else:
++            self.models["depth"] = networks.DepthDecoder(self.models["encoder"].num_ch_enc, self.opt.scales)
          self.models["depth"].to(self.device)
          self.parameters_to_train += list(self.models["depth"].parameters())
  
-@@ -361,10 +362,10 @@ class Trainer:
+@@ -163,9 +174,13 @@ class Trainer:
+         val_dataset = self.dataset(
+             self.opt.data_path, val_filenames, self.opt.height, self.opt.width,
+             self.opt.frame_ids, 4, is_train=False, img_ext=img_ext)
++        # local: --val_num_workers (default = num_workers). The val loader is only sampled once per log
++        # step but its workers keep 2 batches each pre-loaded for the whole run; fewer workers save RAM.
++        # Sample order comes from the main-process sampler, so the worker count does not change training.
++        val_workers = self.opt.num_workers if self.opt.val_num_workers < 0 else self.opt.val_num_workers
+         self.val_loader = DataLoader(
+             val_dataset, self.opt.batch_size, True,
+-            num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
++            num_workers=val_workers, pin_memory=True, drop_last=True)
+         self.val_iter = iter(self.val_loader)
+ 
+         self.writers = {}
+@@ -361,10 +376,10 @@ class Trainer:
          """
          self.set_eval()
          try:
@@ -312,7 +435,16 @@ index 70eda1e..375c4f8 100644
  
          with torch.no_grad():
              outputs, losses = self.process_batch(inputs)
-@@ -657,11 +658,19 @@ class Trainer:
+@@ -525,7 +540,7 @@ class Trainer:
+ 
+             mean_disp = disp.mean(2, True).mean(3, True)
+             norm_disp = disp / (mean_disp + 1e-7)
+-            smooth_loss = get_smooth_loss(norm_disp, color)
++            smooth_loss = get_smooth_loss(norm_disp, color, self.opt.smooth_edge_gain)
+ 
+             loss += self.opt.disparity_smoothness * smooth_loss / (2 ** scale)
+             total_loss += loss
+@@ -657,11 +672,19 @@ class Trainer:
          self.opt.mypretrain = os.path.expanduser(self.opt.mypretrain)
          path = self.opt.mypretrain
          model_dict = self.models["encoder"].state_dict()
@@ -334,3 +466,78 @@ index 70eda1e..375c4f8 100644
  
      def load_model(self):
          """Load model(s) from disk
+diff --git a/export_gt_depth.py b/export_gt_depth.py
+new file mode 100644
+index 0000000..a0c950f
+--- /dev/null
++++ b/export_gt_depth.py
+@@ -0,0 +1,69 @@
++# Copyright Niantic 2019. Patent Pending. All rights reserved.
++#
++# This software is licensed under the terms of the Monodepth2 licence
++# which allows for non-commercial use only, the full terms of which are made
++# available in the LICENSE file.
++
++from __future__ import absolute_import, division, print_function
++
++import os
++
++import argparse
++import numpy as np
++import PIL.Image as pil
++
++from utils import readlines
++from kitti_utils import generate_depth_map
++
++
++def export_gt_depths_kitti():
++
++    parser = argparse.ArgumentParser(description='export_gt_depth')
++
++    parser.add_argument('--data_path',
++                        type=str,
++                        help='path to the root of the KITTI data',
++                        required=True)
++    parser.add_argument('--split',
++                        type=str,
++                        help='which split to export gt from',
++                        required=True,
++                        choices=["eigen", "eigen_benchmark"])
++    opt = parser.parse_args()
++
++    split_folder = os.path.join(os.path.dirname(__file__), "splits", opt.split)
++    lines = readlines(os.path.join(split_folder, "test_files.txt"))
++
++    print("Exporting ground truth depths for {}".format(opt.split))
++
++    gt_depths = []
++    for line in lines:
++
++        folder, frame_id, _ = line.split()
++        frame_id = int(frame_id)
++
++        if opt.split == "eigen":
++            calib_dir = os.path.join(opt.data_path, folder.split("/")[0])
++            velo_filename = os.path.join(opt.data_path, folder,
++                                         "velodyne_points/data", "{:010d}.bin".format(frame_id))
++            gt_depth = generate_depth_map(calib_dir, velo_filename, 2, True)
++        elif opt.split == "eigen_benchmark":
++            gt_depth_path = os.path.join(opt.data_path, folder, "proj_depth",
++                                         "groundtruth", "image_02", "{:010d}.png".format(frame_id))
++            gt_depth = np.array(pil.open(gt_depth_path)).astype(np.float32) / 256
++
++        gt_depths.append(gt_depth.astype(np.float32))
++
++    output_path = os.path.join(split_folder, "gt_depths.npz")
++
++    print("Saving to {}".format(opt.split))
++
++    # compat: maps differ in size per date; NumPy >= 1.24 no longer builds this ragged object array implicitly
++    data = np.empty(len(gt_depths), dtype=object)
++    for i, gt_depth in enumerate(gt_depths):
++        data[i] = gt_depth
++    np.savez_compressed(output_path, data=data)
++
++
++if __name__ == "__main__":
++    export_gt_depths_kitti()
